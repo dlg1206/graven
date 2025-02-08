@@ -23,5 +23,5 @@ class Association(JoinTable):
     """
     Tables that associate data
     """
-    CVE__CWE = "cve_cwe"
-    JAR__CVE = "jar_cve"
+    CVE__CWE = "cve__cwe"
+    JAR__CVE = "jar__cve"
