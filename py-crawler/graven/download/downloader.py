@@ -1,7 +1,7 @@
 """
 File: downloader.py
 
-Description: 
+Description: Download jars into temp directories to be scanned
 
 @author Derek Garcia
 """
@@ -82,11 +82,8 @@ class DownloaderWorker:
 
             except Exception as e:
                 # todo error handling and reporting
-                # todo replace with close method
                 if analysis_task:
-                    if analysis_task._tmp_dir:
-                        analysis_task._tmp_dir.close()
-                    download_limit.release()
+                    analysis_task.close()
                 else:
                     download_limit.release()  # release if something goes wrong
 

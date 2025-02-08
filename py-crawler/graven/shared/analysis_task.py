@@ -28,7 +28,26 @@ class AnalysisTask:
         self._filename = None
         self._tmp_dir = None
 
-    # todo add custom context manager to close temp dir and release semaphore post analysis
+    def __enter__(self):
+        """
+        Context manager for the task
+        :return: AnalysisTask
+        """
+        return self
+
+    def __exit__(self):
+        """
+        Delete the temporary directory and release the semaphore
+        """
+        self.close()
+
+    def close(self) -> None:
+        """
+        Deletes the temporary directory and release the semaphore
+        """
+        if self._tmp_dir:
+            self._tmp_dir.cleanup()
+        self._download_limit.release()
 
     async def save_file(self, response: ClientResponse) -> None:
         """
