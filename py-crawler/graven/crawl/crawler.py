@@ -7,7 +7,7 @@ Description: Crawl maven central repo for urls
 import asyncio
 import re
 import time
-from asyncio import Semaphore, Queue
+from asyncio import Semaphore, Queue, Event
 from typing import Tuple
 
 from aiohttp import ClientSession, TCPConnector
@@ -22,17 +22,20 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, download_queue: Queue[Tuple[str, str]], max_retries: int = DEFAULT_MAX_RETRIES,
+    def __init__(self, download_queue: Queue[Tuple[str, str]], crawler_done_event: Event,
+                 max_retries: int = DEFAULT_MAX_RETRIES,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
         :param download_queue: Queue to add urls of jars to download to
+        :param crawler_done_event: Flag to indicate to rest of pipeline that the crawler is finished
         :param max_retries: Max number of retries to get a url from the crawl queue before exiting (default: 3)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 50)
         """
         self._crawl_queue = Queue()
         self._download_queue = download_queue
+        self._crawler_done_event = crawler_done_event
         self._max_retries = max_retries
         self._semaphore = Semaphore(max_concurrent_requests)
         self._heartbeat = Heartbeat("Crawler")
@@ -86,6 +89,7 @@ class CrawlerWorker:
                 await asyncio.sleep(1)  # todo - might need to increase?
 
         logger.warn(f"Exceeded retries, exiting. . .")
+        self._crawler_done_event.set()  # signal no more urls
 
     async def start(self, root_url: str) -> None:
         """

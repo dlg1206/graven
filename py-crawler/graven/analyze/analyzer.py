@@ -10,11 +10,12 @@ import os
 import platform
 import subprocess
 import time
+from asyncio import Event
 from concurrent.futures import ThreadPoolExecutor
 
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
-from shared.defaults import DEFAULT_MAX_RETRIES, format_time
+from shared.defaults import format_time
 from shared.heartbeat import Heartbeat
 
 DEFAULT_MAX_THREADS = os.cpu_count()
@@ -23,17 +24,18 @@ GRYPE_OUTPUT_JSON = "tmp.json"
 
 
 class AnalyzerWorker:
-    def __init__(self, analyze_queue: asyncio.Queue[AnalysisTask], max_retries: int = DEFAULT_MAX_RETRIES,
+    def __init__(self, analyze_queue: asyncio.Queue[AnalysisTask],
+                 downloader_done_event: Event,
                  max_threads: int = DEFAULT_MAX_THREADS):
         """
         Create a new analyzer worker that spawns threads to process jars using grype
 
         :param analyze_queue: Queue of tasks to analyze
-        :param max_retries: Max number of retries to get an url from the crawl queue before exiting (default: 3)
+        :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
         self._analyze_queue = analyze_queue
-        self._max_retries = max_retries
+        self._downloader_done_event = downloader_done_event
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
 
@@ -58,45 +60,32 @@ class AnalyzerWorker:
     async def _analyze(self) -> None:
         """
         Main analyze method. Will continuously spawn threads to scan jars until
-        the analyze queue is empty and retries exceeded
+        the analysis queue is empty and retries exceeded
         """
 
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            first_download = True
-            cur_retries = 0
-            # repeat until exceed returies
-            while cur_retries < self._max_retries:
+            # run while the downloader is still running or still tasks to process
+            while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
-                    # if first download, wait until jar to download
-                    if first_download:
-                        logger.info("Analyzer idle until analyze queue is populated")
-                        analysis_task = await self._analyze_queue.get()
-                        first_download = False
-                        logger.info("Analysis task added; Analyzer starting")
-                    else:
-                        # If the queue is empty, will error
-                        analysis_task = self._analyze_queue.get_nowait()
+                    analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=1)
                     # spawn thread
                     exe.submit(self._grype_scan, analysis_task)
                     # log status
-                    cur_retries = 0
                     self._analyze_queue.task_done()
                     self._heartbeat.beat(self._analyze_queue.qsize())
-                except asyncio.QueueEmpty:
-                    # sleep and try again
-                    # todo - replace retry with signal
-                    cur_retries += 1
-                    logger.warn(
-                        f"No tasks left in the analysis queue, retrying ({cur_retries}/{self._max_retries}). . .")
-                    await asyncio.sleep(1)  # todo - might need to increase?
-
+                except asyncio.TimeoutError:
+                    """
+                    To prevent deadlocks, the forced timeout with throw this error 
+                    for another iteration of the loop to check conditions
+                    """
+                    continue
                 except Exception as e:
                     # todo error handling and reporting
                     if analysis_task:
                         analysis_task.close()
 
-        logger.warn(f"Exceeded retries, exiting. . .")
+        logger.warn(f"No more jars to scan, exiting. . .")
 
     async def start(self) -> None:
         """
