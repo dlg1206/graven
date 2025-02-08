@@ -1,2 +1,4 @@
 aiohttp==3.11.12
 tqdm==4.67.1
+mysql-connector-python==9.2.0
+python-dotenv==1.0.1

@@ -5,19 +5,8 @@ Description: Abstract collection of tables in the breadcrumbs database
 
 @author Derek Garcia
 """
-from enum import Enum
 
-
-class Table(Enum):
-    """
-    Generic table to be expanded on by implementations
-    """
-
-
-class JoinTable(Table):
-    """
-    Generic join table to be expanded on by implementations
-    """
+from db.database import Table, JoinTable
 
 
 class Data(Table):
