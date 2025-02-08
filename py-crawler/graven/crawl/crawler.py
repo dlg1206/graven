@@ -93,6 +93,7 @@ class CrawlerWorker:
                 logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
                 await asyncio.sleep(1)
             except ClientResponseError as e:
+                # failed to get url
                 logger.error_exp(e)
                 self._database.log_error(Stage.CRAWLER, f"{e.status} | {e.message}", url)
             except Exception as e:

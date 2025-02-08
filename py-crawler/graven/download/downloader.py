@@ -10,8 +10,9 @@ import time
 from asyncio import Semaphore, Event
 from typing import Tuple
 
-from aiohttp import ClientSession, TCPConnector
+from aiohttp import ClientSession, TCPConnector, ClientResponseError
 
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
@@ -19,7 +20,7 @@ from shared.heartbeat import Heartbeat
 
 
 class DownloaderWorker:
-    def __init__(self, download_queue: asyncio.Queue[Tuple[str, str]],
+    def __init__(self, database: BreadcrumbsDatabase, download_queue: asyncio.Queue[Tuple[str, str]],
                  analyze_queue: asyncio.Queue[AnalysisTask],
                  crawler_done_event: Event,
                  downloader_done_event: Event,
@@ -27,12 +28,14 @@ class DownloaderWorker:
         """
         Create a new downloader worker that asynchronously downloads jars from the maven central file tree
 
+        :param database: The database to store any error messages in
         :param download_queue: Queue to pop urls of jars to download from
         :param analyze_queue: Queue of paths to jars to analyze to push to
         :param crawler_done_event: Flag to indicate to rest of pipeline that the crawler is finished
         :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 10)
         """
+        self._database = database
         self._download_queue = download_queue
         self._analyze_queue = analyze_queue
         self._crawler_done_event = crawler_done_event
@@ -47,6 +50,7 @@ class DownloaderWorker:
         :param session: aiohttp session to use for requesting jars
         :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
         """
+        url = None
         # run while the crawler is still running or still tasks to process
         while not (self._crawler_done_event.is_set() and self._download_queue.empty()):
             analysis_task = None
@@ -65,14 +69,20 @@ class DownloaderWorker:
                 # update queues and continue
                 await self._analyze_queue.put(analysis_task)
                 self._download_queue.task_done()
+                url = None  # reset for error logging
             except asyncio.TimeoutError:
                 """
                 To prevent deadlocks, the forced timeout with throw this error 
                 for another iteration of the loop to check conditions
                 """
                 continue
+            except ClientResponseError as e:
+                # failed to get url
+                logger.error_exp(e)
+                self._database.log_error(Stage.DOWNLOADER, f"{e.status} | {e.message}", url)
             except Exception as e:
-                # todo error handling and reporting
+                logger.error_exp(e)
+                self._database.log_error(Stage.DOWNLOADER, f"{type(e).__name__} | {e.__str__()}", url)
                 if analysis_task:
                     analysis_task.close()
                 else:
