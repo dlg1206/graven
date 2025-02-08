@@ -8,6 +8,7 @@ import asyncio
 import re
 import time
 from asyncio import Semaphore, Queue
+from typing import Tuple
 
 from aiohttp import ClientSession, TCPConnector
 
@@ -54,14 +55,14 @@ class Heartbeat:
 
 
 class CrawlerWorker:
-    def __init__(self, download_queue: Queue, max_retries: int = DEFAULT_MAX_RETRIES,
+    def __init__(self, download_queue: Queue[Tuple[str, str]], max_retries: int = DEFAULT_MAX_RETRIES,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
         :param download_queue: Queue to add urls of jars to download to
         :param max_retries: Max number of retries to get a url from the crawl queue before exiting (default: 3)
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 10)
+        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 50)
         """
         self._crawl_queue = Queue()
         self._download_queue = download_queue
@@ -97,7 +98,7 @@ class CrawlerWorker:
         :param session: aiohttp session to use for requesting htmls
         """
         cur_retries = 0
-        while True:
+        while cur_retries < self._max_retries:
             try:
                 # If the queue is empty, will error
                 url = self._crawl_queue.get_nowait()
@@ -112,14 +113,11 @@ class CrawlerWorker:
                 self._heartbeat.beat(self._crawl_queue.qsize())
                 cur_retries = 0
             except asyncio.QueueEmpty:
-                # exit if exceed retries
-                if cur_retries >= self._max_retries:
-                    logger.warn(f"No urls left in crawl queue, exiting. . .")
-                    break
                 # sleep and try again
                 cur_retries += 1
                 logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
                 await asyncio.sleep(1)  # todo - might need to increase?
+        logger.warn(f"Exceeded retries, exiting. . .")
 
     async def start(self, root_url: str) -> None:
         """
