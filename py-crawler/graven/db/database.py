@@ -9,7 +9,8 @@ from enum import Enum
 from typing import List, Tuple
 
 from dotenv import load_dotenv
-from mysql.connector import pooling, OperationalError, IntegrityError
+from mysql import connector
+from mysql.connector import pooling, IntegrityError
 from mysql.connector.cursor import MySQLCursor
 from mysql.connector.pooling import PooledMySQLConnection
 
@@ -58,7 +59,7 @@ class MySQLDatabase:
         try:
             conn = self._connection_pool.get_connection()
             yield conn
-        except OperationalError as oe:
+        except connector.Error as oe:
             logger.fatal(oe)
         finally:
             if conn:
@@ -77,7 +78,7 @@ class MySQLDatabase:
         try:
             cur = connection.cursor()
             yield cur
-        except OperationalError as oe:
+        except connector.Error as oe:
             logger.fatal(oe)
         finally:
             if cur:
@@ -100,7 +101,6 @@ class MySQLDatabase:
                 columns_names = f"({', '.join(columns)})" if columns else ''  # ( c1, ..., cN )
                 params = f"({', '.join('%s' for _ in values)})"  # ( %s, ..., N )
                 sql = f"INSERT INTO {table.value} {columns_names} VALUES {params};"
-
                 # execute
                 try:
                     cur.execute(sql, values)
@@ -111,7 +111,7 @@ class MySQLDatabase:
                 except IntegrityError as ie:
                     # duplicate entry
                     logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})")
-                except OperationalError as oe:
+                except connector.Error as oe:
                     # failed to insert
                     logger.error_exp(oe)
 
@@ -172,7 +172,7 @@ class MySQLDatabase:
                     # execute with where params if present
                     cur.execute(f"{sql};", values)
                     conn.commit()
-                except OperationalError as oe:
+                except connector.Error as oe:
                     # failed to update
                     logger.error_exp(oe)
                     return False
