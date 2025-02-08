@@ -95,9 +95,7 @@ class AnalyzerWorker:
                     continue
                 except Exception as e:
                     logger.error_exp(e)
-                    self._database.log_error(
-                        Stage.ANALYZER,
-                        f"{type(e).__name__} | {e.__str__()} | {analysis_task.get_file_path()}")
+                    self._database.log_error(Stage.ANALYZER, f"{type(e).__name__} | {e.__str__()}", url)
                     if analysis_task:
                         analysis_task.close()
 

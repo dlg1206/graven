@@ -104,9 +104,6 @@ class CrawlerWorker:
         logger.warn(f"Exceeded retries, exiting. . .")
         self._crawler_done_event.set()  # signal no more urls
 
-        logger.warn(f"Exceeded retries, exiting. . .")
-        self._crawler_done_event.set()  # signal no more urls
-
     async def start(self, root_url: str) -> None:
         """
         Launch the crawler

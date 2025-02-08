@@ -9,11 +9,8 @@ import datetime
 from enum import Enum
 from typing import List
 
-from mysql.connector import ProgrammingError, DatabaseError
-
 from db.database import MySQLDatabase
 from db.tables import Data, Association
-from log.logger import logger
 
 DEFAULT_POOL_SIZE = 10
 
@@ -32,15 +29,11 @@ class Stage(Enum):
 class BreadcrumbsDatabase(MySQLDatabase):
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
-        Create a new interface connection to the database
+        Create a new interface to the database
 
         :param pool_size: Size of the database pool (max is 32)
         """
-        try:
-            super().__init__(pool_size)
-        except (ProgrammingError, DatabaseError) as e:
-            logger.fatal(e)
-        logger.info("Connected to the database")
+        super().__init__(pool_size)
 
     def add_jar_and_grype_results(self, jar_url: str, published_date: datetime,
                                   cves: List[str], last_scanned: datetime = datetime.datetime.now()) -> None:
