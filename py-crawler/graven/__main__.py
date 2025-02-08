@@ -6,19 +6,41 @@ Description: Main entrypoint for crawling operations
 """
 import asyncio
 import threading
+import time
 from argparse import ArgumentParser, Namespace
-from typing import Tuple
+from typing import Tuple, Coroutine
 
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
 from log.logger import Level, logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS
+from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
+
+
+async def _timed_task(worker_name: str, coroutine: Coroutine) -> Tuple[str, float]:
+    """
+    Wrapper for coroutine to time execution
+
+    :param worker_name: Name of worker
+    :param coroutine: Coroutine to await
+    :return: Name of worker, duration string in hh:mm:ss
+    """
+    start_time = time.perf_counter()
+    await coroutine
+    return worker_name, time.perf_counter() - start_time
 
 
 def _create_workers(max_retries: int, max_concurrent_requests: int, max_threads: int) \
         -> Tuple[CrawlerWorker, DownloaderWorker, AnalyzerWorker]:
+    """
+    Create the crawler, downloader, and analyzer workers used to create crawl for and processes jars
+
+    :param max_retries: Max retries for crawler before terminating
+    :param max_concurrent_requests: Max allowed concurrent requests for crawler and downloader independently
+    :param max_threads: Max threads allowed to be used for scanning jars with grype
+    :return: CrawlerWorker, DownloaderWorker, AnalyzerWorker
+    """
     # check for grype
     try:
         check_for_grype()
@@ -32,6 +54,7 @@ def _create_workers(max_retries: int, max_concurrent_requests: int, max_threads:
     # create signal flags
     crawler_done_flag = asyncio.Event()
     downloader_done_flag = asyncio.Event()
+    # create workers
     c = CrawlerWorker(database, download_queue, crawler_done_flag, max_retries, max_concurrent_requests)
     d = DownloaderWorker(database, download_queue, analyze_queue, crawler_done_flag, downloader_done_flag,
                          max_concurrent_requests)
@@ -45,13 +68,20 @@ async def _execute(args: Namespace) -> None:
 
     :param args: args to get command details from
     """
+    start_time = time.perf_counter()
     crawler, downloader, analyzer = _create_workers(args.retries, args.concurrent_requests, args.threads)
     download_limit = threading.Semaphore(args.jar_limit)
-    # todo - return time taken for each task master report
+
     # spawn tasks
-    tasks = [asyncio.create_task(crawler.start(args.root_url)),
-             downloader.start(download_limit), analyzer.start()]
-    await asyncio.gather(*tasks)
+    tasks = [_timed_task("Crawler", crawler.start(args.root_url)),
+             _timed_task("Downloader", downloader.start(download_limit)),
+             _timed_task("Analyzer", analyzer.start())]
+
+    # print task durations
+    for worker_name, duration in await asyncio.gather(*tasks):
+        logger.info(f"{worker_name} completed in {format_time(duration)}")
+    end_time = time.perf_counter()
+    logger.info(f"Total Execution Time: {format_time(end_time - start_time)}")
 
 
 def _create_parser() -> ArgumentParser:
