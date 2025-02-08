@@ -5,6 +5,7 @@ Description: Metadata for a jar file to be scanned
 
 @author Derek Garcia
 """
+import os
 from asyncio import Semaphore
 from tempfile import TemporaryDirectory
 
@@ -41,6 +42,18 @@ class AnalysisTask:
         """
         self.close()
 
+    def get_file_path(self) -> str:
+        """
+        :return: The file path to the downloaded jar
+        """
+        return f"{self._tmp_dir}{os.sep}{self._filename}"
+
+    def get_working_directory(self) -> str:
+        """
+        :return: The file path to the temp directory
+        """
+        return self._tmp_dir
+
     def close(self) -> None:
         """
         Deletes the temporary directory and release the semaphore
@@ -59,8 +72,6 @@ class AnalysisTask:
         self._tmp_dir = TemporaryDirectory()
         self._filename = self._url.split("/")[-1]
         # download file
-        # with open(f"{self._tmp_dir}{os.sep}{self._filename}", "wb") as file:
-        with open(f"{self._filename}", "wb") as file:
-            async for chunk in response.content.iter_chunked(8192):
-                file.write(await chunk)
+        with open(f"{self._tmp_dir}{os.sep}{self._filename}", "wb") as file:
+            file.write(await response.read())
         logger.debug_msg(f"Downloaded {self._filename}")
