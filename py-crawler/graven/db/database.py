@@ -110,7 +110,8 @@ class MySQLDatabase:
                         logger.debug_msg(on_success_msg)
                 except IntegrityError as ie:
                     # duplicate entry
-                    logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})")
+                    # logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})") # disabled b/c annoying
+                    pass
                 except connector.Error as oe:
                     # failed to insert
                     logger.error_exp(oe)

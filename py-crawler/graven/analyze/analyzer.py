@@ -6,6 +6,8 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 import asyncio
+import datetime
+import json
 import os
 import platform
 import subprocess
@@ -42,9 +44,15 @@ class AnalyzerWorker:
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
 
-    def _save_grype_results(self, analysis_task: AnalysisTask) -> None:
-        # todo save results to database
-        pass
+    def _save_results(self, url: str, published_date: datetime, grype_output_path: str) -> None:
+
+        with open(grype_output_path, "r") as file:
+            grype_data = json.load(file)
+        # get all cves
+        cve_ids = {vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
+                   vuln["vulnerability"]["id"].startswith("CVE")}
+
+        self._database.add_jar_and_grype_results(url, published_date, list(cve_ids))
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -53,12 +61,14 @@ class AnalyzerWorker:
         :param analysis_task: Task with jar path and additional details
         """
         with analysis_task as at:
+            start_time = time.time()
+            grype_output_path = f"{at.get_working_directory()}{os.sep}{GRYPE_OUTPUT_JSON}"
             subprocess.run([GRYPE_BIN, "--by-cve",
-                            f"-o json={at.get_working_directory()}{os.sep}{GRYPE_OUTPUT_JSON}",
+                            f"-o json={grype_output_path}",
                             at.get_file_path()],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._save_grype_results(at)
-            logger.debug_msg(f"Scanned {at.get_file_path()}")
+            logger.debug_msg(f"Scanned {at.get_file_path()} in {time.time() - start_time:.2f}s")
+            self._save_results(at.get_url(), at.get_publish_date(), grype_output_path)
 
     async def _analyze(self) -> None:
         """
