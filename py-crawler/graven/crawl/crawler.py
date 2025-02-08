@@ -117,6 +117,7 @@ class CrawlerWorker:
                 cur_retries += 1
                 logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
                 await asyncio.sleep(1)  # todo - might need to increase?
+
         logger.warn(f"Exceeded retries, exiting. . .")
 
     async def start(self, root_url: str) -> None:
@@ -127,11 +128,11 @@ class CrawlerWorker:
         """
         # init crawler
         start_time = time.time()
-        await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for /
+        await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for '/'
         logger.info(f"Starting crawler at '{root_url}'")
         # crawl until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._crawl(session)
             # await self._crawl_queue.join()
 
-        logger.info(f"Completed crawl in {time.time() - start_time:.2f} seconds")
+        logger.info(f"Completed crawl in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss

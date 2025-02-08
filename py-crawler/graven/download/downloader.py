@@ -8,8 +8,7 @@ Description:
 import asyncio
 import os
 import time
-from asyncio import Semaphore, Queue
-from tempfile import TemporaryDirectory
+from asyncio import Semaphore
 from typing import Tuple
 
 from aiohttp import ClientSession, TCPConnector, ClientResponse
@@ -86,7 +85,7 @@ class AnalysisTask:
 
 
 class DownloaderWorker:
-    def __init__(self, download_queue: asyncio.Queue[Tuple[str, str]], analyze_queue: Queue[AnalysisTask],
+    def __init__(self, download_queue: asyncio.Queue[Tuple[str, str]], analyze_queue: asyncio.Queue[AnalysisTask],
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
@@ -129,13 +128,12 @@ class DownloaderWorker:
                 # limit to prevent the number of jars downloaded at one time, release after analysis
                 await download_limit.acquire()
 
-                logger.debug_msg(f"Downloading {url}")
                 async with self._semaphore:
                     async with session.get(url) as response:
                         response.raise_for_status()  # todo handle and log to database
                         analysis_task = AnalysisTask(url, timestamp, download_limit)
                         await analysis_task.save_file(response)
-
+                logger.debug_msg(f"Downloaded {url}")
                 # update queues and continue
                 await self._analyze_queue.put(analysis_task)
                 self._download_queue.task_done()
@@ -143,6 +141,7 @@ class DownloaderWorker:
 
             except asyncio.QueueEmpty:
                 # sleep and try again
+                # todo - replace retry with signal
                 cur_retries += 1
                 logger.warn(f"No urls left in download queue, retrying ({cur_retries}/{self._max_retries}). . .")
                 await asyncio.sleep(1)  # todo - might need to increase?
@@ -169,4 +168,4 @@ class DownloaderWorker:
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._download(session, download_limit)
 
-        logger.info(f"Completed download in {time.time() - start_time:.2f} seconds")
+        logger.info(f"Completed download in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss

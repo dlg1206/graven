@@ -11,8 +11,6 @@ from tempfile import TemporaryDirectory
 
 from aiohttp import ClientResponse
 
-from log.logger import logger
-
 
 class AnalysisTask:
     def __init__(self, url: str, timestamp: str, download_limit: Semaphore):
@@ -27,7 +25,7 @@ class AnalysisTask:
         self._timestamp = timestamp
         self._download_limit = download_limit
         self._filename = None
-        self._tmp_dir = None
+        self._tmp_dir = TemporaryDirectory()
 
     def __enter__(self):
         """
@@ -46,13 +44,14 @@ class AnalysisTask:
         """
         :return: The file path to the downloaded jar
         """
-        return f"{self._tmp_dir}{os.sep}{self._filename}"
+        return f"{self._tmp_dir.name}{os.sep}{self._filename}"
+        # return self._filename
 
     def get_working_directory(self) -> str:
         """
         :return: The file path to the temp directory
         """
-        return self._tmp_dir
+        return self._tmp_dir.name
 
     def close(self) -> None:
         """
@@ -72,6 +71,6 @@ class AnalysisTask:
         self._tmp_dir = TemporaryDirectory()
         self._filename = self._url.split("/")[-1]
         # download file
-        with open(f"{self._tmp_dir}{os.sep}{self._filename}", "wb") as file:
+        with open(self.get_file_path(), "wb") as file:
+            # with open(self._filename, "wb") as file:
             file.write(await response.read())
-        logger.debug_msg(f"Downloaded {self._filename}")
