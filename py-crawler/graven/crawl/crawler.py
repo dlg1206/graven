@@ -7,13 +7,13 @@ Description: Crawl maven central repo for urls
 import asyncio
 import re
 import time
-from asyncio import Semaphore, Queue
+from asyncio import Semaphore, Queue, Event
 from typing import Tuple
 
 from aiohttp import ClientSession, TCPConnector
 
 from log.logger import logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES
+from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES, format_time
 from shared.heartbeat import Heartbeat
 
 # todo - update to exclude javadocs, sources, etc
@@ -22,7 +22,8 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, download_queue: Queue[Tuple[str, str]], max_retries: int = DEFAULT_MAX_RETRIES,
+    def __init__(self, download_queue: Queue[Tuple[str, str]], crawler_done_event: Event,
+                 max_retries: int = DEFAULT_MAX_RETRIES,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
@@ -86,7 +87,9 @@ class CrawlerWorker:
                 cur_retries += 1
                 logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
                 await asyncio.sleep(1)  # todo - might need to increase?
+
         logger.warn(f"Exceeded retries, exiting. . .")
+        self._crawler_done_event.set()  # signal no more urls
 
         logger.warn(f"Exceeded retries, exiting. . .")
         self._crawler_done_event.set()  # signal no more urls
@@ -99,7 +102,7 @@ class CrawlerWorker:
         """
         # init crawler
         start_time = time.time()
-        await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for /
+        await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for '/'
         logger.info(f"Starting crawler at '{root_url}'")
         # crawl until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
