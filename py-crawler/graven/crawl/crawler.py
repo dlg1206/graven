@@ -12,46 +12,13 @@ from typing import Tuple
 
 from aiohttp import ClientSession, TCPConnector
 
-from log.logger import logger, Level
-
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_HEARTBEAT_INTERVAL = 5
-DEFAULT_MAX_CONCURRENT_REQUESTS = 50
+from log.logger import logger
+from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES
+from shared.heartbeat import Heartbeat
 
 # todo - update to exclude javadocs, sources, etc
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
-
-
-class Heartbeat:
-    def __init__(self, interval: int = DEFAULT_HEARTBEAT_INTERVAL):
-        """
-        Create a new heartbeat to print snapshot details about the current state of the crawler
-        Is disabled if logging is at debug level
-
-        :param interval: Time in seconds between heartbeat messages
-        """
-        self._interval = interval
-        self._last_heartbeat = None
-        self._last_count = None
-
-    def beat(self, queue_size: int) -> None:
-        """
-        Log a heartbeat message
-
-        :param queue_size: Current size of the crawler queue
-        """
-        # skip if running in debug mode
-        if logger.get_logging_level() == Level.DEBUG:
-            return
-            # skip if not time for heartbeat
-        if self._last_heartbeat and time.time() - self._last_heartbeat < self._interval:
-            return
-        # calc change and print
-        percent_change = ((queue_size - self._last_count) / self._last_count) * 100 if self._last_count else 100
-        logger.info(f"Queue: {queue_size} ( {percent_change:.2f}% )")
-        self._last_count = queue_size
-        self._last_heartbeat = time.time()
 
 
 class CrawlerWorker:
@@ -133,6 +100,5 @@ class CrawlerWorker:
         # crawl until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._crawl(session)
-            # await self._crawl_queue.join()
 
         logger.info(f"Completed crawl in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss

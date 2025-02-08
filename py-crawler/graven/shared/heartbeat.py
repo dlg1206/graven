@@ -13,15 +13,13 @@ DEFAULT_HEARTBEAT_INTERVAL = 5
 
 
 class Heartbeat:
-    def __init__(self, queue_name: str, interval: int = DEFAULT_HEARTBEAT_INTERVAL):
+    def __init__(self, interval: int = DEFAULT_HEARTBEAT_INTERVAL):
         """
         Create a new heartbeat to print snapshot details about the current state of the crawler
         Is disabled if logging is at debug level
 
-        :param queue_name: Name of queue the heartbeat is of
         :param interval: Time in seconds between heartbeat messages
         """
-        self.queue_name = queue_name
         self._interval = interval
         self._last_heartbeat = None
         self._last_count = None
@@ -40,6 +38,6 @@ class Heartbeat:
             return
         # calc change and print
         percent_change = ((queue_size - self._last_count) / self._last_count) * 100 if self._last_count else 100
-        logger.info(f"{self.queue_name} Queue: {queue_size} ( {percent_change:.2f}% )")
+        logger.info(f"Queue: {queue_size} ( {percent_change:.2f}% )")
         self._last_count = queue_size
         self._last_heartbeat = time.time()
