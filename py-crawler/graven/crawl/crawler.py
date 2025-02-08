@@ -13,7 +13,7 @@ from typing import Tuple
 from aiohttp import ClientSession, TCPConnector
 
 from log.logger import logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES
+from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES, format_time
 from shared.heartbeat import Heartbeat
 
 # todo - update to exclude javadocs, sources, etc
@@ -101,4 +101,4 @@ class CrawlerWorker:
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._crawl(session)
 
-        logger.info(f"Completed crawl in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss
+        logger.info(f"Completed crawl in {format_time(time.time() - start_time)}")

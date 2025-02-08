@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
-from shared.defaults import DEFAULT_MAX_RETRIES
+from shared.defaults import DEFAULT_MAX_RETRIES, format_time
 from shared.heartbeat import Heartbeat
 
 DEFAULT_MAX_THREADS = os.cpu_count()
@@ -110,4 +110,4 @@ class AnalyzerWorker:
         # start the analyzer
         logger.info(f"Starting analyzer")
         await self._analyze()
-        logger.info(f"Completed analysis in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss
+        logger.info(f"Completed analysis in {format_time(time.time() - start_time)}")

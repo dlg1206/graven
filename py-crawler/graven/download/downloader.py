@@ -14,7 +14,7 @@ from aiohttp import ClientSession, TCPConnector
 
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
-from shared.defaults import DEFAULT_MAX_RETRIES, DEFAULT_MAX_CONCURRENT_REQUESTS
+from shared.defaults import DEFAULT_MAX_RETRIES, DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
 
 
@@ -102,4 +102,4 @@ class DownloaderWorker:
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._download(session, download_limit)
 
-        logger.info(f"Completed download in {time.time() - start_time:.2f} seconds")  # todo -replace with hh:mm:ss
+        logger.info(f"Completed download in {format_time(time.time() - start_time)}")
