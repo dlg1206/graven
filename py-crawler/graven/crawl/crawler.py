@@ -67,7 +67,7 @@ class CrawlerWorker:
         self._download_queue = download_queue
         self._max_retries = max_retries
         self._semaphore = Semaphore(max_concurrent_requests)
-        self._heartbeat = Heartbeat()
+        self._heartbeat = Heartbeat("Crawler")
 
     async def _parse_html(self, url: str, html: str) -> None:
         """
