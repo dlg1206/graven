@@ -13,6 +13,7 @@ import time
 from asyncio import Event
 from concurrent.futures import ThreadPoolExecutor
 
+from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.defaults import format_time
@@ -24,16 +25,18 @@ GRYPE_OUTPUT_JSON = "tmp.json"
 
 
 class AnalyzerWorker:
-    def __init__(self, analyze_queue: asyncio.Queue[AnalysisTask],
+    def __init__(self, database: BreadcrumbsDatabase, analyze_queue: asyncio.Queue[AnalysisTask],
                  downloader_done_event: Event,
                  max_threads: int = DEFAULT_MAX_THREADS):
         """
         Create a new analyzer worker that spawns threads to process jars using grype
 
+        :param database: The database to save grype results and store any error messages in
         :param analyze_queue: Queue of tasks to analyze
         :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
+        self._database = database
         self._analyze_queue = analyze_queue
         self._downloader_done_event = downloader_done_event
         self._max_threads = max_threads
@@ -81,7 +84,8 @@ class AnalyzerWorker:
                     """
                     continue
                 except Exception as e:
-                    # todo error handling and reporting
+                    logger.error_exp(e)
+                    self._database.log_error(Stage.ANALYZER, f"{type(e).__name__} | {e.__str__()}", url)
                     if analysis_task:
                         analysis_task.close()
 
