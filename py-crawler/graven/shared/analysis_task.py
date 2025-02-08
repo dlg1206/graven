@@ -8,31 +8,41 @@ Description: Metadata for a jar file to be scanned
 import os
 import threading
 from datetime import datetime
-from tempfile import TemporaryDirectory
 
-from aiohttp import ClientResponse
+from log.logger import logger
 
 
 class AnalysisTask:
-    def __init__(self, url: str, publish_date: str, download_limit: threading.Semaphore):
+    def __init__(self, url: str, publish_date: str, download_limit: threading.Semaphore, working_dir_path: str):
         """
         Task metadata object with details about the downloaded jar
 
         :param url: URL of the jar
         :param publish_date: Timestamp when the jar was added
         :param download_limit: Limit of the max number of downloads allowed at a time
+        :param working_dir_path: Path to working directory to save jar to
         """
         self._url = url
         self._publish_date = datetime.strptime(publish_date, "%Y-%m-%d %H:%M")
         self._download_limit = download_limit
-        self._filename = None
-        self._tmp_dir = TemporaryDirectory()
+        self._filename = self._url.split("/")[-1]
+        self._working_dir_path = working_dir_path
 
-    def get_publish_date(self) -> datetime:
+    def cleanup(self) -> None:
         """
-        :return: publish date of jar
+        Deletes the files and release the semaphore
+
+        CALL THIS WHEN DONE OR THERE WILL BE CONSEQUENCES!!!
         """
-        return self._publish_date
+        try:
+            os.remove(self.get_file_path())
+        except Exception as e:
+            logger.error(e)
+        try:
+            os.remove(self.get_grype_file_path())
+        except Exception as e:
+            logger.error(e)
+        self._download_limit.release()
 
     def get_url(self) -> str:
         """
@@ -40,37 +50,26 @@ class AnalysisTask:
         """
         return self._url
 
+    def get_publish_date(self) -> datetime:
+        """
+        :return: publish date of jar
+        """
+        return self._publish_date
+
+    def get_filename(self) -> str:
+        """
+        :return: Name of file
+        """
+        return self._filename
+
     def get_file_path(self) -> str:
         """
         :return: The file path to the downloaded jar
         """
-        return f"{self._tmp_dir.name}{os.sep}{self._filename}"
+        return f"{self._working_dir_path}{os.sep}{self._filename}"
 
-    def get_working_directory(self) -> str:
+    def get_grype_file_path(self) -> str:
         """
-        :return: The file path to the temp directory
+        :return: The file path to the grype report
         """
-        return self._tmp_dir.name
-
-    def close(self) -> None:
-        """
-        Deletes the temporary directory and release the semaphore
-
-        CALL THIS WHEN DONE OR THERE WILL BE CONSEQUENCES!!!
-        """
-        self._download_limit.release()
-        if self._tmp_dir:
-            self._tmp_dir.cleanup()
-
-    async def save_file(self, response: ClientResponse) -> None:
-        """
-        Download the jar to a temporary workspace directory
-
-        :param response: aiohttp response to download the jar from
-        """
-        # build path
-        self._tmp_dir = TemporaryDirectory()
-        self._filename = self._url.split("/")[-1]
-        # download file
-        with open(self.get_file_path(), "wb") as file:
-            file.write(await response.read())
+        return f"{self.get_file_path()}.json"

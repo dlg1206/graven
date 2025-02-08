@@ -46,12 +46,15 @@ class DownloaderWorker:
         self._semaphore = Semaphore(max_concurrent_requests)
         self._heartbeat = Heartbeat("Downloader")
 
-    async def _download(self, session: ClientSession, download_limit: threading.Semaphore) -> None:
+    async def _download(self, session: ClientSession,
+                        download_limit: threading.Semaphore,
+                        download_dir_path: str) -> None:
         """
         Main download method. Will continuously download urls until the download urls is empty and retries exceeded
 
         :param session: aiohttp session to use for requesting jars
         :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
+        :param download_dir_path: Path to directory to download jars to
         """
         url = None
         # run while the crawler is still running or still tasks to process
@@ -66,8 +69,9 @@ class DownloaderWorker:
                 async with self._semaphore:
                     async with session.get(url) as response:
                         response.raise_for_status()
-                        analysis_task = AnalysisTask(url, timestamp, download_limit)
-                        await analysis_task.save_file(response)
+                        analysis_task = AnalysisTask(url, timestamp, download_limit, download_dir_path)
+                        with open(analysis_task.get_file_path(), "wb") as file:
+                            file.write(await response.read())
                 logger.debug_msg(f"Downloaded {url}")
                 # update queues and continue
                 await self._analyze_queue.put(analysis_task)
@@ -87,21 +91,24 @@ class DownloaderWorker:
                 logger.error_exp(e)
                 self._database.log_error(Stage.DOWNLOADER, f"{type(e).__name__} | {e.__str__()}", url)
                 if analysis_task:
-                    analysis_task.close()
+                    analysis_task.cleanup()
                 else:
                     download_limit.release()  # release if something goes wrong
 
         logger.warn(f"No more jars to download, exiting. . .")
         self._downloader_done_event.set()  # signal no more jars
 
-    async def start(self, download_limit: Semaphore) -> None:
+    async def start(self, download_limit: Semaphore, download_dir_path: str) -> None:
         """
         Launch the downloader
+
+        :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
+        :param download_dir_path: Path to directory to download jars to
         """
         start_time = time.time()
         logger.info(f"Starting downloader")
         # download until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
-            await self._download(session, download_limit)
+            await self._download(session, download_limit, download_dir_path)
 
         logger.info(f"Completed download in {format_time(time.time() - start_time)}")

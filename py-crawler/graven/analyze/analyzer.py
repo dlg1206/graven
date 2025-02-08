@@ -6,7 +6,6 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 import asyncio
-import datetime
 import json
 import os
 import platform
@@ -23,7 +22,6 @@ from shared.heartbeat import Heartbeat
 
 DEFAULT_MAX_THREADS = os.cpu_count()
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
-GRYPE_OUTPUT_JSON = "tmp.json"
 
 
 class AnalyzerWorker:
@@ -44,15 +42,17 @@ class AnalyzerWorker:
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
 
-    def _save_results(self, url: str, published_date: datetime, grype_output_path: str) -> None:
+    def _save_results(self, analysis_task: AnalysisTask) -> None:
 
-        with open(grype_output_path, "r") as file:
+        with open(analysis_task.get_grype_file_path(), "r") as file:
             grype_data = json.load(file)
         # get all cves
         cve_ids = {vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
                    vuln["vulnerability"]["id"].startswith("CVE")}
 
-        self._database.add_jar_and_grype_results(url, published_date, list(cve_ids))
+        self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
+                                                 list(cve_ids))
+        analysis_task.cleanup()
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -61,14 +61,12 @@ class AnalyzerWorker:
         :param analysis_task: Task with jar path and additional details
         """
         start_time = time.time()
-        grype_output_path = f"{analysis_task.get_working_directory()}{os.sep}{GRYPE_OUTPUT_JSON}"
         subprocess.run([GRYPE_BIN, "--by-cve",
-                        f"-o json={grype_output_path}",
+                        f"-o json={analysis_task.get_grype_file_path()}",
                         analysis_task.get_file_path()],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
-        self._save_results(analysis_task.get_url(), analysis_task.get_publish_date(), grype_output_path)
-        analysis_task.close()
+        self._save_results(analysis_task)
 
     async def _analyze(self) -> None:
         """
@@ -97,7 +95,7 @@ class AnalyzerWorker:
                     logger.error_exp(e)
                     self._database.log_error(Stage.ANALYZER, f"{type(e).__name__} | {e.__str__()}", url)
                     if analysis_task:
-                        analysis_task.close()
+                        analysis_task.cleanup()
 
         logger.warn(f"No more jars to scan, exiting. . .")
 

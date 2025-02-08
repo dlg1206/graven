@@ -10,6 +10,8 @@ import time
 from argparse import ArgumentParser, Namespace
 from typing import Tuple, Coroutine
 
+from pip._internal.utils.temp_dir import TempDirectory
+
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
@@ -73,14 +75,15 @@ async def _execute(args: Namespace) -> None:
     download_limit = threading.Semaphore(args.jar_limit)
 
     # spawn tasks
-    tasks = [_timed_task("Crawler", crawler.start(args.root_url)),
-             _timed_task("Downloader", downloader.start(download_limit)),
-             _timed_task("Analyzer", analyzer.start())]
-
+    with TempDirectory() as tmp_dir:
+        tasks = [_timed_task("Crawler", crawler.start(args.root_url)),
+                 _timed_task("Downloader", downloader.start(download_limit, tmp_dir.path)),
+                 _timed_task("Analyzer", analyzer.start())]
+        results = await asyncio.gather(*tasks)
     # print task durations
-    for worker_name, duration in await asyncio.gather(*tasks):
-        logger.info(f"{worker_name} completed in {format_time(duration)}")
     end_time = time.perf_counter()
+    for worker_name, duration in results:
+        logger.info(f"{worker_name} completed in {format_time(duration)}")
     logger.info(f"Total Execution Time: {format_time(end_time - start_time)}")
 
 
