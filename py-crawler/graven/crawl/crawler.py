@@ -88,7 +88,7 @@ class CrawlerWorker:
             # new download url
             if match.group(2):
                 download_url = f"{url}{match.group(2)}"
-                await self._download_queue.put((download_url, match.group(3)))  # save jar url and timestamp
+                await self._download_queue.put((download_url, match.group(3).strip()))  # save jar url and timestamp
                 logger.debug_msg(f"Found jar url | {download_url}")
 
     async def _crawl(self, session: ClientSession) -> None:
@@ -127,11 +127,11 @@ class CrawlerWorker:
         """
         # init crawler
         start_time = time.time()
-        await self._crawl_queue.put(root_url)
+        await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for /
         logger.info(f"Starting crawler at '{root_url}'")
         # crawl until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._crawl(session)
-            await self._crawl_queue.join()
+            # await self._crawl_queue.join()
 
         logger.info(f"Completed crawl in {time.time() - start_time:.2f} seconds")
