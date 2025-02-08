@@ -9,7 +9,7 @@ import threading
 from argparse import ArgumentParser, Namespace
 from typing import Tuple
 
-from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_THREADS
+from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
@@ -19,6 +19,11 @@ from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS
 
 def _create_workers(max_retries: int, max_concurrent_requests: int, max_threads: int) \
         -> Tuple[CrawlerWorker, DownloaderWorker, AnalyzerWorker]:
+    # check for grype
+    try:
+        check_for_grype()
+    except FileNotFoundError as e:
+        logger.fatal(e)
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
     # create shared queues

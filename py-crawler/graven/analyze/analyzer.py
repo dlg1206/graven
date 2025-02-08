@@ -110,9 +110,33 @@ class AnalyzerWorker:
         start_time = time.time()
         # update local grype db to save time
         logger.info(f"Initializing grype vulnerability database")
-        subprocess.run([GRYPE_BIN, "db", "update"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process = await asyncio.create_subprocess_shell(
+            f"{GRYPE_BIN} db update",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await process.communicate()
         logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
         # start the analyzer
         logger.info(f"Starting analyzer")
         await self._analyze()
         logger.info(f"Completed analysis in {format_time(time.time() - start_time)}")
+
+
+def check_for_grype() -> None:
+    """
+    Check that grype is installed
+
+    :raises FileNotFoundError: if grype is not present
+    """
+    try:
+        result = subprocess.run(
+            f"{GRYPE_BIN} --version",
+            shell=True,
+            capture_output=True,  # Capture stdout & stderr
+            text=True,  # Return output as string
+            check=True  # Raise error if command fails
+        )
+    except subprocess.CalledProcessError:
+        raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
+    logger.info(f"Using {result.stdout.strip()}")
