@@ -10,8 +10,9 @@ import time
 from asyncio import Semaphore, Queue, Event
 from typing import Tuple
 
-from aiohttp import ClientSession, TCPConnector
+from aiohttp import ClientSession, TCPConnector, ClientResponseError
 
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES, format_time
 from shared.heartbeat import Heartbeat
@@ -22,17 +23,19 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, download_queue: Queue[Tuple[str, str]], crawler_done_event: Event,
+    def __init__(self, database: BreadcrumbsDatabase, download_queue: Queue[Tuple[str, str]], crawler_done_event: Event,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
+        :param database: The database to store any error messages in
         :param download_queue: Queue to add urls of jars to download to
         :param crawler_done_event: Flag to indicate to rest of pipeline that the crawler is finished
         :param max_retries: Max number of retries to get a url from the crawl queue before exiting (default: 3)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 50)
         """
+        self._database = database
         self._crawl_queue = Queue()
         self._download_queue = download_queue
         self._crawler_done_event = crawler_done_event
@@ -68,6 +71,7 @@ class CrawlerWorker:
         :param session: aiohttp session to use for requesting htmls
         """
         cur_retries = 0
+        url = None
         while cur_retries < self._max_retries:
             try:
                 # If the queue is empty, will error
@@ -82,11 +86,18 @@ class CrawlerWorker:
                 self._crawl_queue.task_done()
                 self._heartbeat.beat(self._crawl_queue.qsize())
                 cur_retries = 0
+                url = None  # reset for error logging
             except asyncio.QueueEmpty:
                 # sleep and try again
                 cur_retries += 1
                 logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
-                await asyncio.sleep(1)  # todo - might need to increase?
+                await asyncio.sleep(1)
+            except ClientResponseError as e:
+                logger.error_exp(e)
+                self._database.log_error(Stage.CRAWLER, f"{e.status} | {e.message}", url)
+            except Exception as e:
+                logger.error_exp(e)
+                self._database.log_error(Stage.CRAWLER, f"{type(e).__name__} | {e.__str__()}", url)
 
         logger.warn(f"Exceeded retries, exiting. . .")
         self._crawler_done_event.set()  # signal no more urls
