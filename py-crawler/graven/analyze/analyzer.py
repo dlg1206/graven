@@ -60,15 +60,15 @@ class AnalyzerWorker:
 
         :param analysis_task: Task with jar path and additional details
         """
-        with analysis_task as at:
-            start_time = time.time()
-            grype_output_path = f"{at.get_working_directory()}{os.sep}{GRYPE_OUTPUT_JSON}"
-            subprocess.run([GRYPE_BIN, "--by-cve",
-                            f"-o json={grype_output_path}",
-                            at.get_file_path()],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            logger.debug_msg(f"Scanned {at.get_file_path()} in {time.time() - start_time:.2f}s")
-            self._save_results(at.get_url(), at.get_publish_date(), grype_output_path)
+        start_time = time.time()
+        grype_output_path = f"{analysis_task.get_working_directory()}{os.sep}{GRYPE_OUTPUT_JSON}"
+        subprocess.run([GRYPE_BIN, "--by-cve",
+                        f"-o json={grype_output_path}",
+                        analysis_task.get_file_path()],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
+        self._save_results(analysis_task.get_url(), analysis_task.get_publish_date(), grype_output_path)
+        analysis_task.close()
 
     async def _analyze(self) -> None:
         """

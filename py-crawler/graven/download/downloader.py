@@ -6,7 +6,6 @@ Description: Download jars into temp directories to be scanned
 @author Derek Garcia
 """
 import asyncio
-import os
 import threading
 import time
 from asyncio import Semaphore, Event
@@ -47,7 +46,7 @@ class DownloaderWorker:
         self._semaphore = Semaphore(max_concurrent_requests)
         self._heartbeat = Heartbeat("Downloader")
 
-    async def _download(self, session: ClientSession, download_limit: Semaphore) -> None:
+    async def _download(self, session: ClientSession, download_limit: threading.Semaphore) -> None:
         """
         Main download method. Will continuously download urls until the download urls is empty and retries exceeded
 
@@ -62,7 +61,7 @@ class DownloaderWorker:
                 url, timestamp = await asyncio.wait_for(self._download_queue.get(), timeout=1)
                 self._heartbeat.beat(self._download_queue.qsize())
                 # limit to prevent the number of jars downloaded at one time, release after analysis
-                await download_limit.acquire()
+                download_limit.acquire()
                 # download jar
                 async with self._semaphore:
                     async with session.get(url) as response:

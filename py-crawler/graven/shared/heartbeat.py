@@ -39,7 +39,16 @@ class Heartbeat:
         if self._last_heartbeat and time.time() - self._last_heartbeat < self._interval:
             return
         # calc change and print
-        percent_change = ((queue_size - self._last_count) / self._last_count) * 100 if self._last_count else 100
+        if self._last_count == 0:
+            # 0 to any %
+            if queue_size:
+                percent_change = 100
+            # no change
+            else:
+                percent_change = 0
+        else:
+            percent_change = ((queue_size - self._last_count) / self._last_count) * 100 if self._last_count else 100
+
         logger.info(f"{self.queue_name} Queue: {queue_size} ( {percent_change:.2f}% )")
         self._last_count = queue_size
         self._last_heartbeat = time.time()
