@@ -6,6 +6,8 @@ Description: Download jars into temp directories to be scanned
 @author Derek Garcia
 """
 import asyncio
+import os
+import threading
 import time
 from asyncio import Semaphore, Event
 from typing import Tuple
@@ -17,6 +19,8 @@ from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
+
+DEFAULT_MAX_JAR_LIMIT = 2 * os.cpu_count()  # limit the number of jars downloaded at one time
 
 
 class DownloaderWorker:
@@ -62,7 +66,7 @@ class DownloaderWorker:
                 # download jar
                 async with self._semaphore:
                     async with session.get(url) as response:
-                        response.raise_for_status()  # todo handle and log to database
+                        response.raise_for_status()
                         analysis_task = AnalysisTask(url, timestamp, download_limit)
                         await analysis_task.save_file(response)
                 logger.debug_msg(f"Downloaded {url}")

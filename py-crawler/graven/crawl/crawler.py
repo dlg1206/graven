@@ -14,9 +14,10 @@ from aiohttp import ClientSession, TCPConnector, ClientResponseError
 
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, DEFAULT_MAX_RETRIES, format_time
+from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
 
+DEFAULT_MAX_RETRIES = 3
 # todo - update to exclude javadocs, sources, etc
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
@@ -79,7 +80,7 @@ class CrawlerWorker:
                 # download html
                 async with self._semaphore:
                     async with session.get(url) as response:
-                        response.raise_for_status()  # todo handle and log to database
+                        response.raise_for_status()
                         html = await response.text()
                 # update queues and continue
                 await self._parse_html(url, html)

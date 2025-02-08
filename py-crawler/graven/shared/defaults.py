@@ -6,8 +6,7 @@ Description: Defaults for different parts of graven
 @author Derek Garcia
 """
 
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_MAX_CONCURRENT_REQUESTS = 10
+DEFAULT_MAX_CONCURRENT_REQUESTS = 20
 
 
 def format_time(elapsed_seconds: float) -> str:
