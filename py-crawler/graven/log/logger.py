@@ -153,6 +153,12 @@ class Logger:
         """
         return self
 
+    def get_logging_level(self) -> Level:
+        """
+        Get the current logging level
+        """
+        return self._logging_level
+
     def get_data_queue(self, data: Iterable[Any], description: str, unit: str, is_async: bool = False,
                        is_threaded: bool = False) -> Iterable[Any]:
         """

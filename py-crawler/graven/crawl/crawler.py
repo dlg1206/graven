@@ -11,14 +11,46 @@ from asyncio import Semaphore, Queue
 
 from aiohttp import ClientSession, TCPConnector
 
-from log.logger import logger
+from log.logger import logger, Level
 
 DEFAULT_MAX_RETRIES = 3
-DEFAULT_MAX_CONCURRENT_REQUESTS = 10
+DEFAULT_HEARTBEAT_INTERVAL = 5
+DEFAULT_MAX_CONCURRENT_REQUESTS = 50
 
 # todo - update to exclude javadocs, sources, etc
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
+
+
+class Heartbeat:
+    def __init__(self, interval: int = DEFAULT_HEARTBEAT_INTERVAL):
+        """
+        Create a new heartbeat to print snapshot details about the current state of the crawler
+        Is disabled if logging is at debug level
+
+        :param interval: Time in seconds between heartbeat messages
+        """
+        self._interval = interval
+        self._last_heartbeat = None
+        self._last_count = None
+
+    def beat(self, queue_size: int) -> None:
+        """
+        Log a heartbeat message
+
+        :param queue_size: Current size of the crawler queue
+        """
+        # skip if running in debug mode
+        if logger.get_logging_level() == Level.DEBUG:
+            return
+            # skip if not time for heartbeat
+        if self._last_heartbeat and time.time() - self._last_heartbeat < self._interval:
+            return
+        # calc change and print
+        percent_change = ((queue_size - self._last_count) / self._last_count) * 100 if self._last_count else 100
+        logger.info(f"Queue: {queue_size} ( {percent_change:.2f}% )")
+        self._last_count = queue_size
+        self._last_heartbeat = time.time()
 
 
 class CrawlerWorker:
@@ -35,6 +67,7 @@ class CrawlerWorker:
         self._download_queue = download_queue
         self._max_retries = max_retries
         self._semaphore = Semaphore(max_concurrent_requests)
+        self._heartbeat = Heartbeat()
 
     async def _parse_html(self, url: str, html: str) -> None:
         """
@@ -71,11 +104,12 @@ class CrawlerWorker:
                 # download html
                 async with self._semaphore:
                     async with session.get(url) as response:
-                        response.raise_for_status()  # todo handle
+                        response.raise_for_status()  # todo handle and log to database
                         html = await response.text()
                 # update queues and continue
                 await self._parse_html(url, html)
                 self._crawl_queue.task_done()
+                self._heartbeat.beat(self._crawl_queue.qsize())
                 cur_retries = 0
             except asyncio.QueueEmpty:
                 # exit if exceed retries
