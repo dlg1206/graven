@@ -6,6 +6,7 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 import asyncio
+import concurrent
 import json
 import os
 import platform
@@ -73,23 +74,24 @@ class AnalyzerWorker:
         Main analyze method. Will continuously spawn threads to scan jars until
         the analysis queue is empty and retries exceeded
         """
-
+        futures = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             # run while the downloader is still running or still tasks to process
             while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
-                    analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=1)
+                    analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=30)
+                    self._heartbeat.beat(self._analyze_queue.qsize())
                     # spawn thread
-                    exe.submit(self._grype_scan, analysis_task)
+                    futures.append(exe.submit(self._grype_scan, analysis_task))
                     # log status
                     self._analyze_queue.task_done()
-                    self._heartbeat.beat(self._analyze_queue.qsize())
                 except asyncio.TimeoutError:
                     """
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
+                    logger.warn("Failed to get jar path from queue, retrying. . .")
                     continue
                 except Exception as e:
                     logger.error_exp(e)
@@ -99,7 +101,9 @@ class AnalyzerWorker:
                     if analysis_task:
                         analysis_task.cleanup()
 
-        logger.warn(f"No more jars to scan, exiting. . .")
+        logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
+        concurrent.futures.wait(futures)
+        logger.warn(f"All scans finished, exiting. . .")
 
     async def start(self) -> None:
         """
