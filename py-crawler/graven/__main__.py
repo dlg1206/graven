@@ -76,9 +76,10 @@ async def _execute(args: Namespace) -> None:
 
     # spawn tasks
     with TempDirectory() as tmp_dir:
-        tasks = [_timed_task("Crawler", crawler.start(args.root_url)),
+        tasks = [_timed_task("Analyzer", analyzer.start()),
+                 _timed_task("Crawler", crawler.start(args.root_url)),
                  _timed_task("Downloader", downloader.start(download_limit, tmp_dir.path)),
-                 _timed_task("Analyzer", analyzer.start())]
+                 ]
         results = await asyncio.gather(*tasks)
     # print task durations
     end_time = time.perf_counter()

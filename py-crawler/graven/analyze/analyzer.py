@@ -104,16 +104,21 @@ class AnalyzerWorker:
         Launch the analyzer
         """
         start_time = time.time()
-        # update local grype db to save time
-        logger.info(f"Initializing grype vulnerability database")
-        process = await asyncio.create_subprocess_shell(
-            f"{GRYPE_BIN} db update",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
-        )
-        await process.communicate()
-        logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
+        # update local grype db if needed
+        logger.info(f"Checking grype database status. . .")
+        db_status = subprocess.run([f"{GRYPE_BIN}", "db", "check"],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL).returncode
+        if db_status:
+            logger.warn("grype database needs to be updated!")
+            logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
+            logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
+            subprocess.run([f"{GRYPE_BIN}", "db", "update"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
+
+        logger.info(f"grype database is up to date")
         # start the analyzer
+        start_time = time.time()
         logger.info(f"Starting analyzer")
         await self._analyze()
         logger.info(f"Completed analysis in {format_time(time.time() - start_time)}")
