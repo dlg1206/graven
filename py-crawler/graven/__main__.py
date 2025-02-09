@@ -10,7 +10,7 @@ import time
 from argparse import ArgumentParser, Namespace
 from typing import Tuple, Coroutine
 
-from pip._internal.utils.temp_dir import TempDirectory
+from tempfile import TemporaryDirectory
 
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
@@ -74,10 +74,10 @@ async def _execute(args: Namespace) -> None:
     download_limit = threading.Semaphore(args.jar_limit)
 
     # spawn tasks
-    with TempDirectory() as tmp_dir:
+    with TemporaryDirectory() as tmp_dir:
         tasks = [_timed_task("Analyzer", analyzer.start()),
                  _timed_task("Crawler", crawler.start(args.root_url)),
-                 _timed_task("Downloader", downloader.start(download_limit, tmp_dir.path)),
+                 _timed_task("Downloader", downloader.start(download_limit, tmp_dir)),
                  ]
         results = await asyncio.gather(*tasks)
     # print task durations
