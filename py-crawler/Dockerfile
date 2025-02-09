@@ -14,11 +14,11 @@ LABEL name=graven
 # create user
 RUN adduser -D graven
 WORKDIR /home/graven
+RUN mkdir -p .cache/grype/db && chown -R graven:graven /home/graven
 # install graven
 COPY graven graven/
 COPY requirements.txt requirements.txt
 COPY --from=grype_download /usr/local/bin/grype /usr/local/bin/grype
-RUN mkdir -p .cache/grype/db && chown -R graven:graven .cache/grype/db
 USER graven
 RUN pip install -r requirements.txt
 
