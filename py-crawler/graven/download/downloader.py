@@ -6,6 +6,7 @@ Description: Download jars into temp directories to be scanned
 @author Derek Garcia
 """
 import asyncio
+import os
 import threading
 import time
 from asyncio import Semaphore, Event
