@@ -43,7 +43,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         logger.info("Connected to the database")
 
     def add_jar_and_grype_results(self, jar_url: str, published_date: datetime,
-                                  cves: List[str], last_scanned: datetime = datetime.datetime.now()) -> None:
+                                  cves: List[str], last_scanned: datetime = None) -> None:
         """
         Add a jar to the database and any associated CVEs
 
@@ -55,15 +55,17 @@ class BreadcrumbsDatabase(MySQLDatabase):
         components = jar_url.replace(MAVEN_CENTRAL_ROOT, "").split("/")
         jar_id = components[-1]
         # add jar
-        super()._insert(Data.JAR, [
+        inserts = [
             ('jar_id', jar_id),
             ('uri', jar_url.replace(MAVEN_CENTRAL_ROOT, "")),
             ('group_id', ".".join(components[:-3])),
             ('artifact_id', components[-3]),
             ('version', components[-2]),
-            ('publish_date', published_date),
-            ('last_scanned', last_scanned)
-        ], on_success_msg=f"added {jar_id} to database")
+            ('publish_date', published_date)
+        ]
+        if last_scanned:
+            inserts.append(('last_scanned', last_scanned))
+        super()._insert(Data.JAR, inserts, on_success_msg=f"added {jar_id} to database")
         # add cves
         for cve_id in cves:
             super()._insert(Data.CVE, [('cve_id', cve_id)], on_success_msg=f"Add new cve '{cve_id}'")

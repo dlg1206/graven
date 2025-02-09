@@ -7,5 +7,5 @@ CREATE TABLE IF NOT EXISTS jar
     artifact_id  VARCHAR(255),
     version      VARCHAR(100),
     publish_date TIMESTAMP,
-    last_scanned TIMESTAMP
+    last_scanned TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
