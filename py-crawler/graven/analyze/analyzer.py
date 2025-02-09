@@ -25,6 +25,19 @@ DEFAULT_MAX_THREADS = os.cpu_count()
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 
 
+class GrypeScanFailure(RuntimeError):
+    def __init__(self, file_name: str, stderr: str):
+        """
+        Create new scan failure
+
+        :param file_name: Name of file scanned
+        :param stderr: grype stderr output
+        """
+        super().__init__(f"grype scan failed for {file_name}")
+        self.file_name = file_name
+        self.stderr = stderr
+
+
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase, analyze_queue: asyncio.Queue[AnalysisTask],
                  downloader_done_event: Event,
@@ -44,7 +57,11 @@ class AnalyzerWorker:
         self._heartbeat = Heartbeat("Analysis")
 
     def _save_results(self, analysis_task: AnalysisTask) -> None:
+        """
+        Parse grype results and save them to the database
 
+        :param analysis_task: Task that was scanned
+        """
         with open(analysis_task.get_grype_file_path(), "r") as file:
             grype_data = json.load(file)
         # get all cves
@@ -53,7 +70,6 @@ class AnalyzerWorker:
 
         self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
                                                  list(cve_ids))
-        analysis_task.cleanup()
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -62,12 +78,26 @@ class AnalyzerWorker:
         :param analysis_task: Task with jar path and additional details
         """
         start_time = time.time()
-        subprocess.run([GRYPE_BIN, "--by-cve",
-                        f"-o json={analysis_task.get_grype_file_path()}",
-                        analysis_task.get_file_path()],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
-        self._save_results(analysis_task)
+        # scan
+        try:
+            result = subprocess.run([GRYPE_BIN, "--by-cve",
+                                     f"-o json={analysis_task.get_grype_file_path()}",
+                                     analysis_task.get_file_path()],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+            if result.returncode:
+                raise GrypeScanFailure(analysis_task.get_filename(), result.stderr.decode())
+            logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
+
+            self._save_results(analysis_task)
+        except GrypeScanFailure as e:
+            logger.error_exp(e)
+            self._database.log_error(Stage.ANALYZER, e.stderr, e.file_name)
+        except Exception as e:
+            logger.error_exp(e)
+            self._database.log_error(Stage.ANALYZER, str(e), analysis_task.get_filename())
+        finally:
+            analysis_task.cleanup()
 
     async def _analyze(self) -> None:
         """
@@ -97,7 +127,7 @@ class AnalyzerWorker:
                     logger.error_exp(e)
                     self._database.log_error(
                         Stage.ANALYZER,
-                        f"{type(e).__name__} | {e.__str__()} | {analysis_task.get_file_path()}")
+                        f"{type(e).__name__} | {e.__str__()} | {analysis_task.get_filename()}")
                     if analysis_task:
                         analysis_task.cleanup()
 
