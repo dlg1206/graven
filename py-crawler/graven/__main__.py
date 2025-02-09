@@ -113,18 +113,22 @@ def _create_parser() -> ArgumentParser:
 
     # optional flags
     parser.add_argument('-r', '--retries',
+                        type=int,
                         help="Max number of times to attempt to pop from the crawl queue before quitting",
                         default=DEFAULT_MAX_RETRIES
                         )
     parser.add_argument('-c', '--concurrent_requests',
+                        type=int,
                         help="Max number of concurrent requests each worker can make at once",
                         default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
     parser.add_argument('-j', '--jar_limit',
+                        type=int,
                         help="Max number of jars allowed to be downloaded at once",
                         default=DEFAULT_MAX_JAR_LIMIT)
 
     parser.add_argument('-t', '--threads',
+                        type=int,
                         help="Max number of threads allowed to be used to scan jars. Increase with caution",
                         default=DEFAULT_MAX_THREADS)
 
