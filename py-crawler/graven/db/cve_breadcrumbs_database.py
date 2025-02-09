@@ -57,7 +57,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         # add jar
         super()._insert(Data.JAR, [
             ('jar_id', jar_id),
-            ('uri', jar_url),
+            ('uri', jar_url.replace(MAVEN_CENTRAL_ROOT, "")),
             ('group_id', ".".join(components[:-3])),
             ('artifact_id', components[-3]),
             ('version', components[-2]),
