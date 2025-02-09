@@ -21,6 +21,9 @@ DEFAULT_MAX_RETRIES = 3
 # todo - update to exclude javadocs, sources, etc
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
+# non-jars that can be skipped
+SKIP_JAR_SUFFIXES = ("sources", "javadoc", "tests", "with-dependencies",
+                     "shaded", "minimal", "all", "android", "native", "no-deps", "bin", "api", "sp")
 
 
 class CrawlerWorker:
@@ -60,7 +63,7 @@ class CrawlerWorker:
                 logger.debug_msg(f"Found crawl url | {crawl_url}")
                 continue
             # new download url
-            if match.group(2):
+            if match.group(2) and not match.group(2).removesuffix(".jar").endswith(SKIP_JAR_SUFFIXES):
                 download_url = f"{url}{match.group(2)}"
                 await self._download_queue.put((download_url, match.group(3).strip()))  # save jar url and timestamp
                 logger.debug_msg(f"Found jar url | {download_url}")
