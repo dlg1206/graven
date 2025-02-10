@@ -68,28 +68,32 @@ class AnalyzerWorker:
         :param analysis_task: Task with jar path and additional details
         """
         start_time = time.time()
+        cve_ids = []
         # scan
         try:
-            result = subprocess.run([self._grype_path, "--by-cve",
+            result = subprocess.run([GRYPE_BIN, "--by-cve",
                                      "-f", "negligible",
                                      f"-o json={analysis_task.get_grype_file_path()}",
                                      analysis_task.get_file_path()],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-
-            if result.returncode:
+            # non-zero, non-one error
+            if result.returncode and result.returncode != 1:
                 raise GrypeScanFailure(analysis_task.get_filename(), result.stderr.decode())
             logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
 
-            # save results
-            with open(analysis_task.get_grype_file_path(), "r") as file:
-                grype_data = json.load(file)
-            analysis_task.cleanup()
-            # get all cves
-            cve_ids = {vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
-                       vuln["vulnerability"]["id"].startswith("CVE")}
+            # return.code == 1, which means cves were found
+            if result.returncode:
+                # save results
+                with open(analysis_task.get_grype_file_path(), "r") as file:
+                    grype_data = json.load(file)
+                analysis_task.cleanup()
+                # get all cves
+                cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
+                                vuln["vulnerability"]["id"].startswith("CVE")})
+                logger.info(
+                    f"Scan found {len(cve_ids)} CVE {'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
 
-            self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
-                                                     list(cve_ids))
+            self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(), cve_ids)
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
@@ -131,7 +135,8 @@ class AnalyzerWorker:
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    logger.warn("Failed to get jar path from queue, retrying. . .")
+                    if not first_analysis:
+                        logger.warn("Failed to get jar path from queue, retrying. . .")
                     continue
                 except Exception as e:
                     logger.error_exp(e)
