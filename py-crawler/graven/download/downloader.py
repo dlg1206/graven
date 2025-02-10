@@ -59,33 +59,25 @@ class DownloaderWorker:
         :param download_dir_path: Path to directory to download jars to
         """
         url = None
-        waiting_for_space = False
-        # run while the crawler is still running or still tasks to process
         while not (self._crawler_done_event.is_set() and self._download_queue.empty()):
             analysis_task = None
             try:
-                url, timestamp = await asyncio.wait_for(self._download_queue.get(), timeout=30)
                 self._heartbeat.beat(self._download_queue.qsize())
-                if download_limit.acquire(blocking=False):
-                    logger.warn("Download limit hit; waiting for free spaces")
-                    waiting_for_space = True
-                # limit to prevent the number of jars downloaded at one time, release after analysis
+                url, timestamp = await asyncio.wait_for(self._download_queue.get(), timeout=5)
+
                 # try again to present deadlock
                 if not download_limit.acquire(timeout=30):
-                    logger.warn("Failed to acquire lock; retryring. . .")
+                    logger.warn("Failed to acquire lock; retrying. . .")
                     continue
-                # report continue downloaded if previously waiting
-                if waiting_for_space:
-                    logger.info("Free space available")
-                    waiting_for_space = False
                 # download jar
                 async with self._semaphore:
+                    start_time = time.time()
                     async with session.get(url) as response:
                         response.raise_for_status()
                         analysis_task = AnalysisTask(url, timestamp, download_limit, download_dir_path)
                         with open(analysis_task.get_file_path(), "wb") as file:
                             file.write(await response.read())
-                logger.debug_msg(f"Downloaded {url}")
+                logger.debug_msg(f"Downloaded {url} in {time.time() - start_time:.2f}s")
                 # update queues and continue
                 await self._analyze_queue.put(analysis_task)
                 self._download_queue.task_done()

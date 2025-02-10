@@ -8,9 +8,8 @@ import asyncio
 import threading
 import time
 from argparse import ArgumentParser, Namespace
-from typing import Tuple, Coroutine
-
 from tempfile import TemporaryDirectory
+from typing import Tuple, Coroutine
 
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES

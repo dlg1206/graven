@@ -55,21 +55,6 @@ class AnalyzerWorker:
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
 
-    def _save_results(self, analysis_task: AnalysisTask) -> None:
-        """
-        Parse grype results and save them to the database
-
-        :param analysis_task: Task that was scanned
-        """
-        with open(analysis_task.get_grype_file_path(), "r") as file:
-            grype_data = json.load(file)
-        # get all cves
-        cve_ids = {vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
-                   vuln["vulnerability"]["id"].startswith("CVE")}
-
-        self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
-                                                 list(cve_ids))
-
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
         Use grype to scan a jar
@@ -88,7 +73,16 @@ class AnalyzerWorker:
                 raise GrypeScanFailure(analysis_task.get_filename(), result.stderr.decode())
             logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
 
-            self._save_results(analysis_task)
+            # save results
+            with open(analysis_task.get_grype_file_path(), "r") as file:
+                grype_data = json.load(file)
+            analysis_task.cleanup()
+            # get all cves
+            cve_ids = {vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
+                       vuln["vulnerability"]["id"].startswith("CVE")}
+
+            self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
+                                                     list(cve_ids))
         except GrypeScanFailure as e:
             logger.error_exp(e)
             self._database.log_error(Stage.ANALYZER, e.stderr, e.file_name)
@@ -109,8 +103,9 @@ class AnalyzerWorker:
             while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
-                    analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=30)
                     self._heartbeat.beat(self._analyze_queue.qsize())
+                    analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=5)
+
                     # spawn thread
                     futures.append(exe.submit(self._grype_scan, analysis_task))
                     # log status
@@ -132,6 +127,7 @@ class AnalyzerWorker:
 
         logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(futures)
+        # await asyncio.gather(*futures)
         logger.warn(f"All scans finished, exiting. . .")
 
     async def start(self) -> None:
@@ -154,7 +150,7 @@ class AnalyzerWorker:
         logger.info(f"grype database is up to date")
         # start the analyzer
         start_time = time.time()
-        logger.info(f"Starting analyzer")
+        logger.info(f"Starting analyzer using {self._max_threads} threads")
         await self._analyze()
         logger.info(f"Completed analysis in {format_time(time.time() - start_time)}")
 

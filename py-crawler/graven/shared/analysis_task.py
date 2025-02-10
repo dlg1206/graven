@@ -27,6 +27,7 @@ class AnalysisTask:
         self._download_limit = download_limit
         self._filename = self._url.split("/")[-1]
         self._working_dir_path = working_dir_path
+        self._is_open = True
 
     def cleanup(self) -> None:
         """
@@ -34,6 +35,10 @@ class AnalysisTask:
 
         CALL THIS WHEN DONE OR THERE WILL BE CONSEQUENCES!!!
         """
+        # don't attempt to close if not open
+        if not self._is_open:
+            return
+        # delete files before release lock
         try:
             os.remove(self.get_file_path())
         except Exception as e:
@@ -43,6 +48,7 @@ class AnalysisTask:
         except Exception as e:
             logger.error(e)
         self._download_limit.release()
+        self._is_open = False
 
     def get_url(self) -> str:
         """

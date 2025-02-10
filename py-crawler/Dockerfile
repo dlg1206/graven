@@ -22,7 +22,7 @@ COPY graven graven/
 COPY requirements.txt requirements.txt
 COPY --from=grype_download /usr/local/bin/grype /usr/local/bin/grype
 USER graven
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # lauch graven
 ENTRYPOINT ["python3", "graven"]
