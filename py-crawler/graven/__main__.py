@@ -6,30 +6,16 @@ Description: Main entrypoint for crawling operations
 """
 import asyncio
 import threading
-import time
 from argparse import ArgumentParser, Namespace
 from tempfile import TemporaryDirectory
-from typing import Tuple, Coroutine
+from typing import Tuple
 
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, GRYPE_BIN
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
 from log.logger import Level, logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
-
-
-async def _timed_task(worker_name: str, coroutine: Coroutine) -> Tuple[str, float]:
-    """
-    Wrapper for coroutine to time execution
-
-    :param worker_name: Name of worker
-    :param coroutine: Coroutine to await
-    :return: Name of worker, duration string in hh:mm:ss
-    """
-    start_time = time.perf_counter()
-    await coroutine
-    return worker_name, time.perf_counter() - start_time
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
 
 def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_requests: int, max_threads: int,
@@ -65,22 +51,23 @@ async def _execute(args: Namespace) -> None:
 
     :param args: args to get command details from
     """
-    crawler, downloader, analyzer = _create_workers(args.crawler_retries, args.crawler_requests,
-                                                    args.downloader_requests, args.analyzer_threads, args.grype_path)
+    crawler, downloader, analyzer = _create_workers(args.retries, args.concurrent_requests, args.threads)
     download_limit = threading.Semaphore(args.jar_limit)
 
     # spawn tasks
+    timer = Timer()
     with TemporaryDirectory() as tmp_dir:
-        tasks = [_timed_task("Analyzer", analyzer.start()),
-                 _timed_task("Crawler", crawler.start(args.root_url)),
-                 _timed_task("Downloader", downloader.start(download_limit, tmp_dir)),
-                 ]
-        results = await asyncio.gather(*tasks)
+        timer.start()
+        tasks = [crawler.start(args.root_url),
+                 downloader.start(download_limit, tmp_dir),
+                 analyzer.start()]
+        await asyncio.gather(*tasks)
     # print task durations
-    end_time = time.perf_counter()
-    for worker_name, duration in results:
-        logger.info(f"{worker_name} completed in {format_time(duration)}")
-    logger.info(f"Total Execution Time: {format_time(end_time - start_time)}")
+    timer.stop()
+    logger.info(f"Total Execution Time: {timer.format_time()}")
+    crawler.print_statistics_message()
+    downloader.print_statistics_message()
+    analyzer.print_statistics_message()
 
 
 def _create_parser() -> ArgumentParser:

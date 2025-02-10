@@ -6,7 +6,6 @@ Description: Crawl maven central repo for urls
 """
 import asyncio
 import re
-import time
 from asyncio import Semaphore, Queue, Event
 from typing import Tuple
 
@@ -14,9 +13,8 @@ from aiohttp import ClientSession, TCPConnector, ClientResponseError
 
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
-from shared.utils import Timer
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
 DEFAULT_MAX_RETRIES = 3
 # todo - update to exclude javadocs, sources, etc
@@ -46,6 +44,8 @@ class CrawlerWorker:
         self._max_retries = max_retries
         self._semaphore = Semaphore(max_concurrent_requests)
         self._heartbeat = Heartbeat("Crawler")
+        self._timer = Timer()
+        self._urls_seen = 0
 
     async def _parse_html(self, url: str, html: str) -> None:
         """
@@ -56,6 +56,7 @@ class CrawlerWorker:
         """
         # parse each match in the html
         for match in re.finditer(MAVEN_HTML_REGEX, html):
+            self._urls_seen += 1
             # new crawl url
             if match.group(1):
                 crawl_url = f"{url}{match.group(1)}"
@@ -107,6 +108,11 @@ class CrawlerWorker:
         logger.warn(f"Exceeded retries, exiting. . .")
         self._crawler_done_event.set()  # signal no more urls
 
+    def print_statistics_message(self) -> None:
+        logger.info(f"Crawler completed in {self._timer.format_time()}")
+        logger.info(
+            f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls / s)")
+
     async def start(self, root_url: str) -> None:
         """
         Launch the crawler
@@ -114,11 +120,12 @@ class CrawlerWorker:
         :param root_url: Root url to start the crawler at
         """
         # init crawler
-        start_time = time.time()
+        logger.info(f"Initializing crawler. . .")
         await self._crawl_queue.put(root_url if root_url.endswith("/") else f"{root_url}/")  # check for '/'
-        logger.info(f"Starting crawler at '{root_url}'")
         # crawl until no urls left
+        self._timer.start()
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
+            logger.info(f"Starting crawler at '{root_url}'")
             await self._crawl(session)
-
-        logger.info(f"Completed crawl in {format_time(time.time() - start_time)}")
+        self._timer.stop()
+        self.print_statistics_message()

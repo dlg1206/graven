@@ -17,9 +17,8 @@ from aiohttp import ClientSession, TCPConnector, ClientResponseError
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
-from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
-from shared.utils import format_time, Timer
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time, Timer
 
 DEFAULT_MAX_JAR_LIMIT = 2 * os.cpu_count()  # limit the number of jars downloaded at one time
 
@@ -47,6 +46,8 @@ class DownloaderWorker:
         self._downloader_done_event = downloader_done_event
         self._semaphore = Semaphore(max_concurrent_requests)
         self._heartbeat = Heartbeat("Downloader")
+        self._timer = Timer()
+        self._downloaded_jars = 0
 
     async def _download(self, session: ClientSession,
                         download_limit: threading.Semaphore,
@@ -59,12 +60,22 @@ class DownloaderWorker:
         :param download_dir_path: Path to directory to download jars to
         """
         url = None
+        wait_start = None
+        first_download = True
         while not (self._crawler_done_event.is_set() and self._download_queue.empty()):
             analysis_task = None
             try:
-                self._heartbeat.beat(self._download_queue.qsize())
+                if first_download:
+                    logger.info("Waiting for urls, may take some time before populating")
+                    wait_start = time.time()
                 url, timestamp = await asyncio.wait_for(self._download_queue.get(), timeout=5)
+                if first_download:
+                    logger.info(
+                        f"URLs have been added to the download queue, waited for {format_time(time.time() - wait_start)}. Starting downloader")
+                    first_download = False
+                    self._timer.start()
 
+                self._heartbeat.beat(self._download_queue.qsize())
                 # try again to present deadlock
                 if not download_limit.acquire(timeout=30):
                     logger.warn("Failed to acquire lock; retrying. . .")
@@ -77,6 +88,7 @@ class DownloaderWorker:
                         analysis_task = AnalysisTask(url, timestamp, download_limit, download_dir_path)
                         with open(analysis_task.get_file_path(), "wb") as file:
                             file.write(await response.read())
+                self._downloaded_jars += 1
                 logger.debug_msg(f"Downloaded {url} in {time.time() - start_time:.2f}s")
                 # update queues and continue
                 await self._analyze_queue.put(analysis_task)
@@ -87,7 +99,8 @@ class DownloaderWorker:
                 To prevent deadlocks, the forced timeout with throw this error 
                 for another iteration of the loop to check conditions
                 """
-                logger.warn("Failed to get jar url from queue, retrying. . .")
+                if not first_download:
+                    logger.warn("Failed to get jar url from queue, retrying. . .")
                 continue
             except ClientResponseError as e:
                 # failed to get url
@@ -104,6 +117,11 @@ class DownloaderWorker:
         logger.warn(f"No more jars to download, exiting. . .")
         self._downloader_done_event.set()  # signal no more jars
 
+    def print_statistics_message(self) -> None:
+        logger.info(f"Downloader completed in {self._timer.format_time()}")
+        logger.info(
+            f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
+
     async def start(self, download_limit: Semaphore, download_dir_path: str) -> None:
         """
         Launch the downloader
@@ -111,10 +129,10 @@ class DownloaderWorker:
         :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
         :param download_dir_path: Path to directory to download jars to
         """
-        start_time = time.time()
-        logger.info(f"Starting downloader")
+
+        logger.info(f"Initializing downloader. . .")
         # download until no urls left
         async with ClientSession(connector=TCPConnector(limit=50)) as session:
             await self._download(session, download_limit, download_dir_path)
-
-        logger.info(f"Completed download in {format_time(time.time() - start_time)}")
+        self._timer.stop()
+        self.print_statistics_message()

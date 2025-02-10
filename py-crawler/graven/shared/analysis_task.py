@@ -42,11 +42,11 @@ class AnalysisTask:
         try:
             os.remove(self.get_file_path())
         except Exception as e:
-            logger.error(e)
+            logger.error_exp(e)
         try:
             os.remove(self.get_grype_file_path())
         except Exception as e:
-            logger.error(e)
+            logger.error_exp(e)
         self._download_limit.release()
         self._is_open = False
 

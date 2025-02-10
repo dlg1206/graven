@@ -18,8 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
-from shared.defaults import format_time
 from shared.heartbeat import Heartbeat
+from shared.utils import format_time, Timer
 
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
@@ -56,6 +56,8 @@ class AnalyzerWorker:
         self._downloader_done_event = downloader_done_event
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
+        self._timer = Timer()
+        self._jars_scanned = 0
 
         self._verify_grype_installation()
 
@@ -88,6 +90,7 @@ class AnalyzerWorker:
 
             self._database.add_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
                                                      list(cve_ids))
+            self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
             self._database.log_error(Stage.ANALYZER, e.stderr, e.file_name)
@@ -96,6 +99,7 @@ class AnalyzerWorker:
             self._database.log_error(Stage.ANALYZER, str(e), analysis_task.get_filename())
         finally:
             analysis_task.cleanup()
+            self._analyze_queue.task_done()
 
     async def _analyze(self) -> None:
         """
@@ -103,18 +107,25 @@ class AnalyzerWorker:
         the analysis queue is empty and retries exceeded
         """
         futures = []
+        wait_start = None
+        first_analysis = True
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             # run while the downloader is still running or still tasks to process
             while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
-                    self._heartbeat.beat(self._analyze_queue.qsize())
+                    if first_analysis:
+                        logger.info("Waiting for jars, may take some time before populating")
+                        wait_start = time.time()
                     analysis_task = await asyncio.wait_for(self._analyze_queue.get(), timeout=5)
-
+                    if first_analysis:
+                        logger.info(
+                            f"jars have been added to the analysis queue, waited for {format_time(time.time() - wait_start)}. Starting analyzer")
+                        first_analysis = False
+                        self._timer.start()
+                    self._heartbeat.beat(self._analyze_queue.qsize())
                     # spawn thread
                     futures.append(exe.submit(self._grype_scan, analysis_task))
-                    # log status
-                    self._analyze_queue.task_done()
                 except asyncio.TimeoutError:
                     """
                     To prevent deadlocks, the forced timeout with throw this error 
@@ -132,26 +143,7 @@ class AnalyzerWorker:
 
         logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(futures)
-        # await asyncio.gather(*futures)
         logger.warn(f"All scans finished, exiting. . .")
-
-    def _verify_grype_installation(self) -> None:
-        """
-        Check that grype is installed
-
-        :raises FileNotFoundError: if grype is not present
-        """
-        try:
-            result = subprocess.run(
-                f"{self._grype_path} --version",
-                shell=True,
-                capture_output=True,  # Capture stdout & stderr
-                text=True,  # Return output as string
-                check=True  # Raise error if command fails
-            )
-        except subprocess.CalledProcessError:
-            raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
-        logger.info(f"Using {result.stdout.strip()}")
 
     def print_statistics_message(self) -> None:
         logger.info(f"Analyzer completed in {self._timer.format_time()} using {self._max_threads} threads")
@@ -162,13 +154,15 @@ class AnalyzerWorker:
         """
         Launch the analyzer
         """
-        start_time = time.time()
+        logger.info(f"Initializing analyzer . .")
+
         # update local grype db if needed
         logger.info(f"Checking grype database status. . .")
         db_status = subprocess.run([f"{self._grype_path}", "db", "check"],
                                    stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL).returncode
         if db_status:
+            start_time = time.time()
             logger.warn("grype database needs to be updated!")
             logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
             logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
@@ -178,8 +172,26 @@ class AnalyzerWorker:
 
         logger.info(f"grype database is up to date")
         # start the analyzer
-        start_time = time.time()
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         await self._analyze()
         self._timer.stop()
         self.print_statistics_message()
+
+
+def check_for_grype() -> None:
+    """
+    Check that grype is installed
+
+    :raises FileNotFoundError: if grype is not present
+    """
+    try:
+        result = subprocess.run(
+            f"{GRYPE_BIN} --version",
+            shell=True,
+            capture_output=True,  # Capture stdout & stderr
+            text=True,  # Return output as string
+            check=True  # Raise error if command fails
+        )
+    except subprocess.CalledProcessError:
+        raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
+    logger.info(f"Using {result.stdout.strip()}")

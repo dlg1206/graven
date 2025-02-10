@@ -5,10 +5,9 @@ Description: Defaults for different parts of graven
 
 @author Derek Garcia
 """
-import os
 import time
 
-DEFAULT_MAX_CONCURRENT_REQUESTS = os.cpu_count()
+DEFAULT_MAX_CONCURRENT_REQUESTS = 20
 
 
 class Timer:
