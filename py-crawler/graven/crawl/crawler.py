@@ -26,7 +26,7 @@ MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 # non-jars that can be skipped
 SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependencies",
-                     "shaded", "minimal", "all", "android", "native", "no-deps", "bin", "api", "sp", "release", "full")
+                     "shaded", "minimal", "all", "android", "native", "no-deps", "bin", "api", "sp", "full")
 
 
 class CrawlerWorker:
