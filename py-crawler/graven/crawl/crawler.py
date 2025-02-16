@@ -9,7 +9,6 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from queue import LifoQueue, Queue
 from threading import Event, Thread
-from time import sleep
 from typing import Tuple
 
 import requests
@@ -21,7 +20,7 @@ from shared.heartbeat import Heartbeat
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
 DEFAULT_MAX_RETRIES = 3
-DEFAULT_TIMEOUT = 1
+DEFAULT_TIMEOUT = 5  # longer timeout to be extra sure no other urls to parse
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 # non-jars that can be skipped
@@ -30,17 +29,19 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependenci
 
 
 class CrawlerWorker:
-    def __init__(self, database: BreadcrumbsDatabase, max_retries: int, max_concurrent_requests: int):
+    def __init__(self, database: BreadcrumbsDatabase, download_queue: Queue, max_retries: int,
+                 max_concurrent_requests: int):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
         :param database: The database to store any error messages in
+        :param download_queue: The shared queue to place jar urls once found
         :param max_retries: Max number of retries to get a url from the crawl queue before exiting
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._database = database
         self._crawl_queue = LifoQueue()
-        self._download_queue = Queue()
+        self._download_queue = download_queue
         self._crawler_done_flag = Event()
         self._max_retries = max_retries
         self._max_concurrent_requests = max_concurrent_requests
@@ -128,7 +129,8 @@ class CrawlerWorker:
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
             while cur_retries < self._max_retries:
                 try:
-                    url = self._crawl_queue.get_nowait()  # If the queue is empty, will error
+                    # Wait if queue is empty
+                    url = self._crawl_queue.get(timeout=DEFAULT_TIMEOUT if self._crawl_queue.empty() else 0)
                     tasks.append(exe.submit(self._process_url, url))
                     self._heartbeat.beat(self._crawl_queue.qsize())
                     cur_retries = 0
@@ -136,7 +138,6 @@ class CrawlerWorker:
                     # sleep and try again
                     cur_retries += 1
                     logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
-                    sleep(DEFAULT_TIMEOUT)
         logger.warn(f"Exceeded retries, waiting for remaining tasks to finish. . .")
         for task in tasks:
             task.result()

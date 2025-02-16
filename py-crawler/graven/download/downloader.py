@@ -5,7 +5,7 @@ Description: Download jars into temp directories to be scanned
 
 @author Derek Garcia
 """
-import os
+import concurrent
 import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -22,8 +22,8 @@ from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
 
-DEFAULT_MAX_JAR_LIMIT = 2 * os.cpu_count()  # limit the number of jars downloaded at one time
-DOWNLOAD_QUEUE_TIMEOUT = 30
+DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
+DOWNLOAD_QUEUE_TIMEOUT = 0
 
 
 class DownloaderWorker:
@@ -57,13 +57,18 @@ class DownloaderWorker:
         self._downloaded_jars = 0
 
     def _download_jar(self, analysis_task: AnalysisTask) -> None:
+        """
+        Download jar
+
+        :param analysis_task: Task with details about jar url and download location
+        """
         start_time = time.time()
         with requests.get(analysis_task.get_url()) as response:
             response.raise_for_status()
             with open(analysis_task.get_file_path(), "wb") as file:
                 file.write(response.content)
-        self._downloaded_jars += 1
         logger.debug_msg(f"Downloaded {analysis_task.get_url()} in {time.time() - start_time:.2f}s")
+        self._downloaded_jars += 1
 
     def _process_task(self, url: str, timestamp: str, download_dir_path: str) -> None:
         """
@@ -103,14 +108,17 @@ class DownloaderWorker:
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
             first_time_wait_for_tasks("Downloader", self._download_queue)  # block until items to process
             self._timer.start()
+            # run while the crawler is still running or still tasks to process
             while not (self._crawler_done_flag.is_set() and self._download_queue.empty()):
                 try:
-                    url, timestamp = self._download_queue.get(timeout=DOWNLOAD_QUEUE_TIMEOUT)
-                    self._heartbeat.beat(self._download_queue.qsize())
-                    # try again to present deadlock
-                    if not self._download_limit.acquire(timeout=DOWNLOAD_QUEUE_TIMEOUT):
+                    # limit the max number of jars on system at one time
+                    if not self._download_limit.acquire(timeout=30):
                         logger.warn("Failed to acquire lock; retrying. . .")
                         continue
+
+                    url, timestamp = self._download_queue.get_nowait()
+                    self._heartbeat.beat(self._download_queue.qsize())
+
                     # download jar
                     tasks.append(exe.submit(self._process_task, url, timestamp, download_dir_path))
 
@@ -119,18 +127,21 @@ class DownloaderWorker:
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    logger.warn("Failed to get jar url from queue, retrying. . .")
+                    self._download_limit.release()  # release to try again
                     continue
 
         logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
-        for task in tasks:
-            task.result()
+        concurrent.futures.wait(tasks)
+        logger.warn(f"All downloads finished, exiting. . .")
         self._downloader_done_flag.set()  # signal no more jars
         # done
         self._timer.stop()
         self.print_statistics_message()
 
     def print_statistics_message(self) -> None:
+        """
+        Prints statistics about the analyzer
+        """
         logger.info(f"Downloader completed in {self._timer.format_time()}")
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")

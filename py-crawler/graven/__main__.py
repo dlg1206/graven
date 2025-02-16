@@ -4,7 +4,6 @@ Description: Main entrypoint for crawling operations
 
 @author Derek Garcia
 """
-import asyncio
 from argparse import ArgumentParser, Namespace
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -17,7 +16,7 @@ from log.logger import Level, logger
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
 
-async def _execute(args: Namespace) -> None:
+def _execute(args: Namespace) -> None:
     """
     run graven
 
@@ -25,10 +24,14 @@ async def _execute(args: Namespace) -> None:
     """
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
+    download_queue = Queue()
     analyze_queue = Queue()
-    crawler = CrawlerWorker(database, args.crawler_retries, args.crawler_requests)
+    crawler = CrawlerWorker(database,
+                            download_queue,
+                            args.crawler_retries,
+                            args.crawler_requests)
     downloader = DownloaderWorker(database,
-                                  crawler.get_download_queue(),
+                                  download_queue,
                                   analyze_queue,
                                   crawler.get_crawler_done_flag(),
                                   args.downloader_requests,
@@ -44,12 +47,12 @@ async def _execute(args: Namespace) -> None:
         timer.start()
         threads = [
             crawler.start(args.root_url),
-            downloader.start(tmp_dir)
+            downloader.start(tmp_dir),
+            analyzer.start()
         ]
-        tasks = [analyzer.start()]
         for t in threads:
             t.join()
-        await asyncio.gather(*tasks)
+
     # print task durations
     timer.stop()
     logger.info(f"Total Execution Time: {timer.format_time()}")
@@ -138,7 +141,7 @@ def main() -> None:
         logger.set_log_level(args.log_level)
 
     # create command
-    asyncio.run(_execute(args))
+    _execute(args)
 
 
 if __name__ == "__main__":
