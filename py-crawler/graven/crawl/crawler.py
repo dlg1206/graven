@@ -137,7 +137,7 @@ class CrawlerWorker:
                     cur_retries += 1
                     logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
                     sleep(DEFAULT_TIMEOUT)
-        logger.warn(f"Exceeded retries. Waiting for remaining tasks to finish. . .")
+        logger.warn(f"Exceeded retries, waiting for remaining tasks to finish. . .")
         for task in tasks:
             task.result()
         # done

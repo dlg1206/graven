@@ -5,10 +5,9 @@ Description: Main entrypoint for crawling operations
 @author Derek Garcia
 """
 import asyncio
-import threading
 from argparse import ArgumentParser, Namespace
+from queue import Queue
 from tempfile import TemporaryDirectory
-from typing import Tuple
 
 from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, GRYPE_BIN
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
@@ -18,50 +17,38 @@ from log.logger import Level, logger
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
 
-def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_requests: int, max_threads: int,
-                    grype_path: str) \
-        -> Tuple[CrawlerWorker, DownloaderWorker, AnalyzerWorker]:
-    """
-    Create the crawler, downloader, and analyzer workers used to create crawl for and processes jars
-
-    :param max_retries: Max retries for crawler before terminating
-    :param max_crawler_requests: Max allowed concurrent requests for crawler and downloader independently
-    :param max_threads: Max threads allowed to be used for scanning jars with grype
-    :return: CrawlerWorker, DownloaderWorker, AnalyzerWorker
-    """
-    # attempt to log in into the database
-    database = BreadcrumbsDatabase()
-    # create shared queues
-    analyze_queue = asyncio.Queue()
-    # create signal flags
-    downloader_done_flag = asyncio.Event()
-    # create workers
-    c = CrawlerWorker(database, max_retries, max_crawler_requests)
-    d = DownloaderWorker(database, c.get_download_queue(), analyze_queue, c.get_crawler_done_flag(),
-                         downloader_done_flag,
-                         max_downloader_requests)
-    a = AnalyzerWorker(database, grype_path, analyze_queue, downloader_done_flag, max_threads)
-    return c, d, a
-
-
 async def _execute(args: Namespace) -> None:
     """
     run graven
 
     :param args: args to get command details from
     """
-    crawler, downloader, analyzer = _create_workers(args.retries, args.concurrent_requests, args.threads)
-    download_limit = threading.Semaphore(args.jar_limit)
-
+    # attempt to log in into the database
+    database = BreadcrumbsDatabase()
+    analyze_queue = Queue()
+    crawler = CrawlerWorker(database, args.crawler_retries, args.crawler_requests)
+    downloader = DownloaderWorker(database,
+                                  crawler.get_download_queue(),
+                                  analyze_queue,
+                                  crawler.get_crawler_done_flag(),
+                                  args.downloader_requests,
+                                  args.jar_limit)
+    analyzer = AnalyzerWorker(database,
+                              args.grype_path,
+                              analyze_queue,
+                              downloader.get_downloader_done_flag(),
+                              args.analyzer_threads)
     # spawn tasks
     timer = Timer()
     with TemporaryDirectory() as tmp_dir:
         timer.start()
-        thread = crawler.start(args.root_url)
-        tasks = [
-            downloader.start(download_limit, tmp_dir),
-            analyzer.start()]
-        thread.join()
+        threads = [
+            crawler.start(args.root_url),
+            downloader.start(tmp_dir)
+        ]
+        tasks = [analyzer.start()]
+        for t in threads:
+            t.join()
         await asyncio.gather(*tasks)
     # print task durations
     timer.stop()

@@ -6,6 +6,9 @@ Description: Defaults for different parts of graven
 @author Derek Garcia
 """
 import time
+from queue import Queue
+
+from log.logger import logger
 
 DEFAULT_MAX_CONCURRENT_REQUESTS = 20
 
@@ -69,3 +72,17 @@ def format_time(elapsed_seconds: float) -> str:
     hours, remainder = divmod(int(elapsed_seconds), 3600)
     minutes, seconds = divmod(remainder, 60)
     return "{:02}:{:02}:{:02}".format(hours, minutes, seconds)
+
+
+def first_time_wait_for_tasks(queue_name: str, queue: Queue) -> None:
+    """
+    Blocking get from queue
+
+    :param queue_name: name of queue
+    :param queue: Queue to get item from
+    """
+    queue_name = queue_name.lower()
+    logger.info(f"{queue_name.capitalize()} waiting for tasks, this may take some time before populating")
+    wait_start = time.time()
+    queue.put(queue.get())  # block until item and immediately re-add
+    logger.info(f"Tasks have been added to the {queue_name} queue, waited for {format_time(time.time() - wait_start)}.")

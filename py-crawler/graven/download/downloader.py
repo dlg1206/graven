@@ -5,134 +5,155 @@ Description: Download jars into temp directories to be scanned
 
 @author Derek Garcia
 """
-import asyncio
 import os
-import threading
+import queue
 import time
-from asyncio import Semaphore, Event
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from threading import Event, Semaphore, Thread
 from typing import Tuple
 
-from aiohttp import ClientSession, TCPConnector, ClientResponseError
+import requests
+from requests import RequestException
 
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
-from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time, Timer
+from shared.utils import Timer, first_time_wait_for_tasks
 
 DEFAULT_MAX_JAR_LIMIT = 2 * os.cpu_count()  # limit the number of jars downloaded at one time
+DOWNLOAD_QUEUE_TIMEOUT = 30
 
 
 class DownloaderWorker:
-    def __init__(self, database: BreadcrumbsDatabase, download_queue: asyncio.Queue[Tuple[str, str]],
-                 analyze_queue: asyncio.Queue[AnalysisTask],
-                 crawler_done_event: Event,
-                 downloader_done_event: Event,
-                 max_concurrent_requests: int):
+    def __init__(self, database: BreadcrumbsDatabase,
+                 download_queue: Queue[Tuple[str, str]],
+                 analyze_queue: Queue[AnalysisTask],
+                 crawler_done_flag: Event,
+                 max_concurrent_requests: int,
+                 download_limit: int
+                 ):
         """
         Create a new downloader worker that asynchronously downloads jars from the maven central file tree
 
         :param database: The database to store any error messages in
         :param download_queue: Queue to pop urls of jars to download from
         :param analyze_queue: Queue of paths to jars to analyze to push to
-        :param crawler_done_event: Flag to indicate to rest of pipeline that the crawler is finished
-        :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 10)
+        :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
+        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
+        :param download_limit: Max number of jars to be downloaded at one time
         """
         self._database = database
         self._download_queue = download_queue
         self._analyze_queue = analyze_queue
-        self._crawler_done_event = crawler_done_event
-        self._downloader_done_event = downloader_done_event
-        self._semaphore = Semaphore(max_concurrent_requests)
+        self._crawler_done_flag = crawler_done_flag
+        self._downloader_done_flag = Event()
+        self._max_concurrent_requests = max_concurrent_requests
+        self._download_limit = Semaphore(download_limit)
+
         self._heartbeat = Heartbeat("Downloader")
         self._timer = Timer()
         self._downloaded_jars = 0
 
-    async def _download(self, session: ClientSession,
-                        download_limit: threading.Semaphore,
-                        download_dir_path: str) -> None:
-        """
-        Main download method. Will continuously download urls until the download urls is empty and retries exceeded
+    def _download_jar(self, analysis_task: AnalysisTask) -> None:
+        start_time = time.time()
+        with requests.get(analysis_task.get_url()) as response:
+            response.raise_for_status()
+            with open(analysis_task.get_file_path(), "wb") as file:
+                file.write(response.content)
+        self._downloaded_jars += 1
+        logger.debug_msg(f"Downloaded {analysis_task.get_url()} in {time.time() - start_time:.2f}s")
 
-        :param session: aiohttp session to use for requesting jars
-        :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
+    def _process_task(self, url: str, timestamp: str, download_dir_path: str) -> None:
+        """
+        Wrapper task for submitting to thread pool
+        Downloads jar to file and updates the analyze queue
+
+        :param url: URL of jar to download
+        :param timestamp: Timestamp jar was uploaded
+        :param download_dir_path: Path to directory to download jar to
+        """
+        analysis_task = AnalysisTask(url, timestamp, self._download_limit, download_dir_path)
+        try:
+            self._download_jar(analysis_task)
+            self._analyze_queue.put(analysis_task)
+        except RequestException as e:
+            # failed to get jar
+            logger.error_exp(e)
+            if hasattr(e, 'response'):
+                self._database.log_error(Stage.DOWNLOADER, f"{e.response.status_code} | {str(e)}", url)
+            else:
+                self._database.log_error(Stage.DOWNLOADER, "Failed to download jar", url)
+        except Exception as e:
+            logger.error_exp(e)
+            self._database.log_error(Stage.CRAWLER, f"{type(e).__name__} | {e.__str__()}", url)
+            analysis_task.cleanup()  # rm and release if anything goes wrong
+        finally:
+            self._download_queue.task_done()
+
+    def _download(self, download_dir_path: str) -> None:
+        """
+        Continuously download jars until the download urls is empty and retries exceeded
+
         :param download_dir_path: Path to directory to download jars to
         """
-        url = None
-        wait_start = None
-        first_download = True
-        while not (self._crawler_done_event.is_set() and self._download_queue.empty()):
-            analysis_task = None
-            try:
-                if first_download:
-                    logger.info("Waiting for urls, may take some time before populating")
-                    wait_start = time.time()
-                url, timestamp = await asyncio.wait_for(self._download_queue.get(), timeout=5)
-                if first_download:
-                    logger.info(
-                        f"URLs have been added to the download queue, waited for {format_time(time.time() - wait_start)}. Starting downloader")
-                    first_download = False
-                    self._timer.start()
+        logger.info(f"Initializing downloader. . .")
+        tasks = []
+        with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
+            first_time_wait_for_tasks("Downloader", self._download_queue)  # block until items to process
+            self._timer.start()
+            while not (self._crawler_done_flag.is_set() and self._download_queue.empty()):
+                try:
+                    url, timestamp = self._download_queue.get(timeout=DOWNLOAD_QUEUE_TIMEOUT)
+                    self._heartbeat.beat(self._download_queue.qsize())
+                    # try again to present deadlock
+                    if not self._download_limit.acquire(timeout=DOWNLOAD_QUEUE_TIMEOUT):
+                        logger.warn("Failed to acquire lock; retrying. . .")
+                        continue
+                    # download jar
+                    tasks.append(exe.submit(self._process_task, url, timestamp, download_dir_path))
 
-                self._heartbeat.beat(self._download_queue.qsize())
-                # try again to present deadlock
-                if not download_limit.acquire(timeout=30):
-                    logger.warn("Failed to acquire lock; retrying. . .")
-                    continue
-                # download jar
-                async with self._semaphore:
-                    start_time = time.time()
-                    async with session.get(url) as response:
-                        response.raise_for_status()
-                        analysis_task = AnalysisTask(url, timestamp, download_limit, download_dir_path)
-                        with open(analysis_task.get_file_path(), "wb") as file:
-                            file.write(await response.read())
-                self._downloaded_jars += 1
-                logger.debug_msg(f"Downloaded {url} in {time.time() - start_time:.2f}s")
-                # update queues and continue
-                await self._analyze_queue.put(analysis_task)
-                self._download_queue.task_done()
-                url = None  # reset for error logging
-            except asyncio.TimeoutError:
-                """
-                To prevent deadlocks, the forced timeout with throw this error 
-                for another iteration of the loop to check conditions
-                """
-                if not first_download:
+                except queue.Empty:
+                    """
+                    To prevent deadlocks, the forced timeout with throw this error 
+                    for another iteration of the loop to check conditions
+                    """
                     logger.warn("Failed to get jar url from queue, retrying. . .")
-                continue
-            except ClientResponseError as e:
-                # failed to get url
-                logger.error_exp(e)
-                self._database.log_error(Stage.DOWNLOADER, f"{e.status} | {e.message}", url)
-            except Exception as e:
-                logger.error_exp(e)
-                self._database.log_error(Stage.DOWNLOADER, f"{type(e).__name__} | {e.__str__()}", url)
-                if analysis_task:
-                    analysis_task.cleanup()
-                else:
-                    download_limit.release()  # release if something goes wrong
+                    continue
 
-        logger.warn(f"No more jars to download, exiting. . .")
-        self._downloader_done_event.set()  # signal no more jars
+        logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
+        for task in tasks:
+            task.result()
+        self._downloader_done_flag.set()  # signal no more jars
+        # done
+        self._timer.stop()
+        self.print_statistics_message()
 
     def print_statistics_message(self) -> None:
         logger.info(f"Downloader completed in {self._timer.format_time()}")
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
 
-    async def start(self, download_limit: Semaphore, download_dir_path: str) -> None:
+    def start(self, download_dir_path: str) -> Thread:
         """
-        Launch the downloader
+        Spawn and start the downloader worker thread
 
-        :param download_limit: Semaphore to limit the number of jars to be downloaded at one time
         :param download_dir_path: Path to directory to download jars to
+        :return: Downloader thread
         """
+        thread = Thread(target=self._download, args=(download_dir_path,))
+        thread.start()
+        return thread
 
-        logger.info(f"Initializing downloader. . .")
-        # download until no urls left
-        async with ClientSession(connector=TCPConnector(limit=50)) as session:
-            await self._download(session, download_limit, download_dir_path)
-        self._timer.stop()
-        self.print_statistics_message()
+    def get_analyze_queue(self) -> Queue[AnalysisTask]:
+        """
+        :return: analyze queue
+        """
+        return self._analyze_queue
+
+    def get_downloader_done_flag(self) -> Event:
+        """
+        :return: Downloader done flag
+        """
+        return self._downloader_done_flag
