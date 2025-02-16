@@ -17,7 +17,7 @@ from requests import RequestException
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.heartbeat import Heartbeat
-from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
+from shared.utils import Timer
 
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_TIMEOUT = 5  # longer timeout to be extra sure no other urls to parse

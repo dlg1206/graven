@@ -5,12 +5,13 @@ Description: Defaults for different parts of graven
 
 @author Derek Garcia
 """
+import os
 import time
 from queue import Queue
 
 from log.logger import logger
 
-DEFAULT_MAX_CONCURRENT_REQUESTS = 20
+DEFAULT_MAX_CONCURRENT_REQUESTS = os.cpu_count()
 
 
 class Timer:

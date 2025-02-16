@@ -79,7 +79,7 @@ class AnalyzerWorker:
         cve_ids = []
         # scan
         try:
-            result = subprocess.run([GRYPE_BIN, "--by-cve",
+            result = subprocess.run([self._grype_path, "--by-cve",
                                      "-f", "negligible",
                                      f"-o json={analysis_task.get_grype_file_path()}",
                                      analysis_task.get_file_path()],
@@ -172,6 +172,24 @@ class AnalyzerWorker:
             logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
 
         logger.info(f"grype database is up to date")
+
+    def _verify_grype_installation(self) -> None:
+        """
+        Check that grype is installed
+
+        :raises FileNotFoundError: if grype is not present
+        """
+        try:
+            result = subprocess.run(
+                f"{self._grype_path} --version",
+                shell=True,
+                capture_output=True,  # Capture stdout & stderr
+                text=True,  # Return output as string
+                check=True  # Raise error if command fails
+            )
+        except subprocess.CalledProcessError:
+            raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
+        logger.info(f"Using {result.stdout.strip()}")
 
     def print_statistics_message(self) -> None:
         """
