@@ -29,17 +29,22 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependenci
 
 
 class CrawlerWorker:
-    def __init__(self, database: BreadcrumbsDatabase, download_queue: Queue, max_retries: int,
+    def __init__(self, database: BreadcrumbsDatabase,
+                 update: bool,
+                 download_queue: Queue,
+                 max_retries: int,
                  max_concurrent_requests: int):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
         :param database: The database to store any error messages in
+        :param update: Add jar url to download queue even if already in the database
         :param download_queue: The shared queue to place jar urls once found
         :param max_retries: Max number of retries to get a url from the crawl queue before exiting
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._database = database
+        self._update = update
         self._crawl_queue = LifoQueue()
         self._download_queue = download_queue
         self._crawler_done_flag = Event()
@@ -68,6 +73,11 @@ class CrawlerWorker:
             # new download url
             if match.group(2) and not match.group(2).removesuffix(".jar").lower().endswith(SKIP_JAR_SUFFIXES):
                 download_url = f"{url}{match.group(2)}"
+                # Skip if seen the url and not updating
+                if not self._update and self._database.seen_url(download_url):
+                    logger.debug_msg(f"Found jar url, but already seen. Skipping. . . | {download_url}")
+                    continue
+
                 self._download_queue.put((download_url, match.group(3).strip()))  # save jar url and timestamp
                 logger.debug_msg(f"Found jar url | {download_url}")
 

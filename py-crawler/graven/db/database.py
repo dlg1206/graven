@@ -6,7 +6,7 @@ Description: MySQL database interface for handling cve data
 import os
 from contextlib import contextmanager
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from dotenv import load_dotenv
 from mysql import connector
@@ -84,7 +84,7 @@ class MySQLDatabase:
             if cur:
                 cur.close()
 
-    def _insert(self, table: Table, inserts: List[Tuple[str, str]], on_success_msg: str = None) -> None:
+    def _insert(self, table: Table, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> None:
         """
         Generic insert into the database
 
@@ -117,7 +117,7 @@ class MySQLDatabase:
                     logger.error_exp(oe)
 
     def _select(self, table: Table, columns: List[str] = None,
-                where_equals: List[Tuple[str, str | int]] = None) \
+                where_equals: List[Tuple[str, Any]] = None) \
             -> List[Tuple[str]]:
         """
         Generic select from the database
@@ -140,8 +140,8 @@ class MySQLDatabase:
                 cur.execute(f"{sql};", [] if not where_equals else [clause[1] for clause in where_equals])
                 return cur.fetchall()
 
-    def _update(self, table: Table, updates: List[Tuple[str, str]],
-                where_equals: List[Tuple[str, str | int]] = None, on_success: str = None, amend: bool = False) -> bool:
+    def _update(self, table: Table, updates: List[Tuple[str, Any]],
+                where_equals: List[Tuple[str, Any]] = None, on_success: str = None, amend: bool = False) -> bool:
         """
         Generic update from the database
 
@@ -182,7 +182,7 @@ class MySQLDatabase:
                     logger.debug_msg(on_success)
                 return cur.rowcount > 0  # rows changed
 
-    def _upsert(self, table: Table, primary_key: Tuple[str, str], updates: List[Tuple[str, str]],
+    def _upsert(self, table: Table, primary_key: Tuple[str, Any], updates: List[Tuple[str, Any]],
                 print_on_success: bool = True) -> None:
         """
         Generic upsert to the database
@@ -196,7 +196,7 @@ class MySQLDatabase:
         if not self._update(table, updates,
                             where_equals=[primary_key],
                             on_success=f"Updated {primary_key[0]} '{primary_key[1]}'" if print_on_success else None,
-                            amend=True):
+                            amend=False):
             # if fail, insert
             updates.append(primary_key)
             self._insert(table, updates,

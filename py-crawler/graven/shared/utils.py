@@ -84,5 +84,6 @@ def first_time_wait_for_tasks(queue_name: str, queue: Queue) -> None:
     queue_name = queue_name.lower()
     logger.info(f"{queue_name.capitalize()} waiting for tasks, this may take some time before populating")
     wait_start = time.time()
+    # EDGE CASE - if the crawler runs out of urls before this is called the program will wait forever
     queue.put(queue.get())  # block until item and immediately re-add
     logger.info(f"Tasks have been added to the {queue_name} queue, waited for {format_time(time.time() - wait_start)}.")

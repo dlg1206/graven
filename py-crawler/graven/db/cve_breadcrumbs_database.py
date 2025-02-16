@@ -15,7 +15,7 @@ from db.database import MySQLDatabase
 from db.tables import Data, Association
 from log.logger import logger
 
-DEFAULT_POOL_SIZE = 10
+DEFAULT_POOL_SIZE = 32
 
 MAVEN_CENTRAL_ROOT = "https://repo1.maven.org/maven2/"
 
@@ -42,34 +42,44 @@ class BreadcrumbsDatabase(MySQLDatabase):
             logger.fatal(e)
         logger.info("Connected to the database")
 
-    def add_jar_and_grype_results(self, jar_url: str, published_date: datetime,
-                                  cves: List[str], last_scanned: datetime = None) -> None:
+    def seen_url(self, url: str) -> bool:
+        """
+        Check if the database has seen these jars before
+
+        :param url: URL to check
+        :return: True if seen, false otherwise
+        """
+        foo = self._select(Data.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])
+        return len(self._select(Data.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
+
+    def upsert_jar_and_grype_results(self, jar_url: str,
+                                     published_date: datetime,
+                                     cves: List[str],
+                                     last_scanned: datetime) -> None:
         """
         Add a jar to the database and any associated CVEs
 
         :param jar_url: URL of jar
         :param published_date: Date when the jar was published
         :param cves: List of CVEs associated with the jar
-        :param last_scanned: Date last scanned with grype (default: now)
+        :param last_scanned: Date last scanned with grype
         """
         components = jar_url.replace(MAVEN_CENTRAL_ROOT, "").split("/")
         jar_id = components[-1]
         # add jar
         inserts = [
-            ('jar_id', jar_id),
             ('uri', jar_url.replace(MAVEN_CENTRAL_ROOT, "")),
             ('group_id', ".".join(components[:-3])),
             ('artifact_id', components[-3]),
             ('version', components[-2]),
-            ('publish_date', published_date)
+            ('publish_date', published_date),
+            ('last_scanned', last_scanned)
         ]
-        if last_scanned:
-            inserts.append(('last_scanned', last_scanned))
-        super()._insert(Data.JAR, inserts, on_success_msg=f"added {jar_id} to database")
+        self._upsert(Data.JAR, ('jar_id', jar_id), inserts)
         # add cves
         for cve_id in cves:
-            super()._insert(Data.CVE, [('cve_id', cve_id)], on_success_msg=f"Add new cve '{cve_id}'")
-            super()._insert(Association.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)])
+            self._insert(Data.CVE, [('cve_id', cve_id)], on_success_msg=f"Add new cve '{cve_id}'")
+            self._insert(Association.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)])
 
     def log_error(self, stage: Stage, message: str, uri: str = None) -> None:
         """
@@ -82,4 +92,4 @@ class BreadcrumbsDatabase(MySQLDatabase):
         inserts = [('stage', stage.value), ('message', message)]
         if uri:
             inserts.append(('uri', uri))
-        super()._insert(Data.ERROR_LOG, inserts)
+        self._insert(Data.ERROR_LOG, inserts)

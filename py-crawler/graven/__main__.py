@@ -27,6 +27,7 @@ def _execute(args: Namespace) -> None:
     download_queue = Queue()
     analyze_queue = Queue()
     crawler = CrawlerWorker(database,
+                            args.update,
                             download_queue,
                             args.crawler_retries,
                             args.crawler_requests)
@@ -83,6 +84,9 @@ def _create_parser() -> ArgumentParser:
                         default=False)
     # start url
     parser.add_argument("root_url", help="Root URL to start crawler at")
+    parser.add_argument("-u", "--update",
+                        action="store_true",
+                        help="Download jar and scan even if already in the database")
 
     crawler_group = parser.add_argument_group("Crawler Options")
     crawler_group.add_argument("--crawler-retries",

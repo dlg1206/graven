@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS jar
 (
     jar_id       VARCHAR(255) PRIMARY KEY,
-    uri          VARCHAR(255) UNIQUE,
+    uri          VARCHAR(512) UNIQUE,
     group_id     VARCHAR(255),
     artifact_id  VARCHAR(255),
     version      VARCHAR(100),
