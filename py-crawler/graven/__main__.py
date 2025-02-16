@@ -32,14 +32,13 @@ def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
     # create shared queues
-    download_queue = asyncio.Queue()
     analyze_queue = asyncio.Queue()
     # create signal flags
-    crawler_done_flag = asyncio.Event()
     downloader_done_flag = asyncio.Event()
     # create workers
-    c = CrawlerWorker(database, download_queue, crawler_done_flag, max_retries, max_crawler_requests)
-    d = DownloaderWorker(database, download_queue, analyze_queue, crawler_done_flag, downloader_done_flag,
+    c = CrawlerWorker(database, max_retries, max_crawler_requests)
+    d = DownloaderWorker(database, c.get_download_queue(), analyze_queue, c.get_crawler_done_flag(),
+                         downloader_done_flag,
                          max_downloader_requests)
     a = AnalyzerWorker(database, grype_path, analyze_queue, downloader_done_flag, max_threads)
     return c, d, a
@@ -58,9 +57,11 @@ async def _execute(args: Namespace) -> None:
     timer = Timer()
     with TemporaryDirectory() as tmp_dir:
         timer.start()
-        tasks = [crawler.start(args.root_url),
-                 downloader.start(download_limit, tmp_dir),
-                 analyzer.start()]
+        thread = crawler.start(args.root_url)
+        tasks = [
+            downloader.start(download_limit, tmp_dir),
+            analyzer.start()]
+        thread.join()
         await asyncio.gather(*tasks)
     # print task durations
     timer.stop()
