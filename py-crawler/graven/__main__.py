@@ -11,7 +11,7 @@ from argparse import ArgumentParser, Namespace
 from tempfile import TemporaryDirectory
 from typing import Tuple, Coroutine
 
-from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, check_for_grype
+from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, GRYPE_BIN
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
@@ -32,7 +32,8 @@ async def _timed_task(worker_name: str, coroutine: Coroutine) -> Tuple[str, floa
     return worker_name, time.perf_counter() - start_time
 
 
-def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_requests: int, max_threads: int) \
+def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_requests: int, max_threads: int,
+                    grype_path: str) \
         -> Tuple[CrawlerWorker, DownloaderWorker, AnalyzerWorker]:
     """
     Create the crawler, downloader, and analyzer workers used to create crawl for and processes jars
@@ -42,11 +43,6 @@ def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_
     :param max_threads: Max threads allowed to be used for scanning jars with grype
     :return: CrawlerWorker, DownloaderWorker, AnalyzerWorker
     """
-    # check for grype
-    try:
-        check_for_grype()
-    except FileNotFoundError as e:
-        logger.fatal(e)
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
     # create shared queues
@@ -59,7 +55,7 @@ def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_
     c = CrawlerWorker(database, download_queue, crawler_done_flag, max_retries, max_crawler_requests)
     d = DownloaderWorker(database, download_queue, analyze_queue, crawler_done_flag, downloader_done_flag,
                          max_downloader_requests)
-    a = AnalyzerWorker(database, analyze_queue, downloader_done_flag, max_threads)
+    a = AnalyzerWorker(database, grype_path, analyze_queue, downloader_done_flag, max_threads)
     return c, d, a
 
 
@@ -69,7 +65,8 @@ async def _execute(args: Namespace) -> None:
 
     :param args: args to get command details from
     """
-    crawler, downloader, analyzer = _create_workers(args.crawler_retries, args.crawler_requests, args.downloader_requests, args.analyzer_threads)
+    crawler, downloader, analyzer = _create_workers(args.crawler_retries, args.crawler_requests,
+                                                    args.downloader_requests, args.analyzer_threads, args.grype_path)
     download_limit = threading.Semaphore(args.jar_limit)
 
     # spawn tasks
@@ -109,37 +106,45 @@ def _create_parser() -> ArgumentParser:
     # start url
     parser.add_argument("root_url", help="Root URL to start crawler at")
 
-    # optional flags
-    parser.add_argument("--crawler-retries",
-                        metavar="<number of retries>",
-                        type=int,
-                        help=f"Max number of times to attempt to pop from the crawl queue before quitting (Default: {DEFAULT_MAX_RETRIES})",
-                        default=DEFAULT_MAX_RETRIES
-                        )
+    crawler_group = parser.add_argument_group("Crawler Options")
+    crawler_group.add_argument("--crawler-retries",
+                               metavar="<number of retries>",
+                               type=int,
+                               help=f"Max number of times to attempt to pop from the crawl queue before quitting (Default: {DEFAULT_MAX_RETRIES})",
+                               default=DEFAULT_MAX_RETRIES
+                               )
 
-    parser.add_argument("--crawler-requests",
-                        metavar="<number of requests>",
-                        type=int,
-                        help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
-                        default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+    crawler_group.add_argument("--crawler-requests",
+                               metavar="<number of requests>",
+                               type=int,
+                               help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
+                               default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-    parser.add_argument("--downloader-requests",
-                        metavar="<number of requests>",
-                        type=int,
-                        help=f"Max number of downloads downloader can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
-                        default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+    downloader_group = parser.add_argument_group("Downloader Options")
+    downloader_group.add_argument("--downloader-requests",
+                                  metavar="<number of requests>",
+                                  type=int,
+                                  help=f"Max number of downloads downloader can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
+                                  default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-    parser.add_argument("--analyzer-threads",
-                        metavar="<number of the threads>",
-                        type=int,
-                        help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
-                        default=DEFAULT_MAX_ANALYZER_THREADS)
+    downloader_group.add_argument("--jar-limit",
+                                  metavar="<number of jars>",
+                                  type=int,
+                                  help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
+                                  default=DEFAULT_MAX_JAR_LIMIT)
 
-    parser.add_argument("--jar-limit",
-                        metavar="<number of jars>",
-                        type=int,
-                        help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
-                        default=DEFAULT_MAX_JAR_LIMIT)
+    analyzer_group = parser.add_argument_group("Analyzer Options")
+    analyzer_group.add_argument("--analyzer-threads",
+                                metavar="<number of the threads>",
+                                type=int,
+                                help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
+                                default=DEFAULT_MAX_ANALYZER_THREADS)
+
+    analyzer_group.add_argument("--grype-path",
+                                metavar="<absolute path to grype binary>",
+                                type=str,
+                                help=f"Path to Grype binary to use. By default, assumes grype is already on the PATH",
+                                default=GRYPE_BIN)
 
     return parser
 

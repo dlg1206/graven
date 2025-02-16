@@ -39,21 +39,25 @@ class GrypeScanFailure(RuntimeError):
 
 
 class AnalyzerWorker:
-    def __init__(self, database: BreadcrumbsDatabase, analyze_queue: asyncio.Queue[AnalysisTask],
+    def __init__(self, database: BreadcrumbsDatabase, grype_path: str, analyze_queue: asyncio.Queue[AnalysisTask],
                  downloader_done_event: Event, max_threads: int):
         """
         Create a new analyzer worker that spawns threads to process jars using grype
 
         :param database: The database to save grype results and store any error messages in
+        :param grype_path: The path to the grype executable
         :param analyze_queue: Queue of tasks to analyze
         :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
         self._database = database
+        self._grype_path = grype_path
         self._analyze_queue = analyze_queue
         self._downloader_done_event = downloader_done_event
         self._max_threads = max_threads
         self._heartbeat = Heartbeat("Analysis")
+
+        self._verify_grype_installation()
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -64,7 +68,8 @@ class AnalyzerWorker:
         start_time = time.time()
         # scan
         try:
-            result = subprocess.run([GRYPE_BIN, "--by-cve",
+            result = subprocess.run([self._grype_path, "--by-cve",
+                                     "-f", "negligible",
                                      f"-o json={analysis_task.get_grype_file_path()}",
                                      analysis_task.get_file_path()],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -130,6 +135,29 @@ class AnalyzerWorker:
         # await asyncio.gather(*futures)
         logger.warn(f"All scans finished, exiting. . .")
 
+    def _verify_grype_installation(self) -> None:
+        """
+        Check that grype is installed
+
+        :raises FileNotFoundError: if grype is not present
+        """
+        try:
+            result = subprocess.run(
+                f"{self._grype_path} --version",
+                shell=True,
+                capture_output=True,  # Capture stdout & stderr
+                text=True,  # Return output as string
+                check=True  # Raise error if command fails
+            )
+        except subprocess.CalledProcessError:
+            raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
+        logger.info(f"Using {result.stdout.strip()}")
+
+    def print_statistics_message(self) -> None:
+        logger.info(f"Analyzer completed in {self._timer.format_time()} using {self._max_threads} threads")
+        logger.info(
+            f"Analyzer has scanned {self._jars_scanned} jars ({self._timer.get_count_per_second(self._jars_scanned):.01f} jars / s)")
+
     async def start(self) -> None:
         """
         Launch the analyzer
@@ -137,14 +165,15 @@ class AnalyzerWorker:
         start_time = time.time()
         # update local grype db if needed
         logger.info(f"Checking grype database status. . .")
-        db_status = subprocess.run([f"{GRYPE_BIN}", "db", "check"],
+        db_status = subprocess.run([f"{self._grype_path}", "db", "check"],
                                    stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL).returncode
         if db_status:
             logger.warn("grype database needs to be updated!")
             logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
             logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
-            subprocess.run([f"{GRYPE_BIN}", "db", "update"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run([f"{self._grype_path}", "db", "update"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
             logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
 
         logger.info(f"grype database is up to date")
@@ -152,23 +181,5 @@ class AnalyzerWorker:
         start_time = time.time()
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         await self._analyze()
-        logger.info(f"Completed analysis in {format_time(time.time() - start_time)}")
-
-
-def check_for_grype() -> None:
-    """
-    Check that grype is installed
-
-    :raises FileNotFoundError: if grype is not present
-    """
-    try:
-        result = subprocess.run(
-            f"{GRYPE_BIN} --version",
-            shell=True,
-            capture_output=True,  # Capture stdout & stderr
-            text=True,  # Return output as string
-            check=True  # Raise error if command fails
-        )
-    except subprocess.CalledProcessError:
-        raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
-    logger.info(f"Using {result.stdout.strip()}")
+        self._timer.stop()
+        self.print_statistics_message()
