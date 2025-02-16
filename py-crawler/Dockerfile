@@ -5,7 +5,9 @@
 
 # install grype
 FROM alpine/curl:8.12.0 AS grype_download
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+# latest as of writing
+ARG GRYPE_VERSION=v0.87.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin $GRYPE_VERSION
 
 FROM python:3.12.9-alpine3.21 AS graven
 LABEL maintainer="Derek Garcia <dgarcia2@hawaii.edu"
