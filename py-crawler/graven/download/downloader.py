@@ -106,7 +106,8 @@ class DownloaderWorker:
         logger.info(f"Initializing downloader. . .")
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
-            first_time_wait_for_tasks("Downloader", self._download_queue)  # block until items to process
+            first_time_wait_for_tasks("Downloader", self._download_queue,
+                                      self._crawler_done_flag)  # block until items to process
             self._timer.start()
             # run while the crawler is still running or still tasks to process
             while not (self._crawler_done_flag.is_set() and self._download_queue.empty()):

@@ -125,7 +125,8 @@ class AnalyzerWorker:
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            first_time_wait_for_tasks("Analyzer", self._analyze_queue)  # block until items to process
+            first_time_wait_for_tasks("Analyzer", self._analyze_queue,
+                                      self._downloader_done_event)  # block until items to process
             self._timer.start()
             # run while the downloader is still running or still tasks to process
             while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
