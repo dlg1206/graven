@@ -21,7 +21,7 @@ from shared.analysis_task import AnalysisTask
 from shared.defaults import format_time
 from shared.heartbeat import Heartbeat
 
-DEFAULT_MAX_THREADS = os.cpu_count()
+DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 
 
@@ -40,8 +40,7 @@ class GrypeScanFailure(RuntimeError):
 
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase, analyze_queue: asyncio.Queue[AnalysisTask],
-                 downloader_done_event: Event,
-                 max_threads: int = DEFAULT_MAX_THREADS):
+                 downloader_done_event: Event, max_threads: int):
         """
         Create a new analyzer worker that spawns threads to process jars using grype
 

@@ -19,6 +19,7 @@ from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
+from shared.utils import format_time, Timer
 
 DEFAULT_MAX_JAR_LIMIT = 2 * os.cpu_count()  # limit the number of jars downloaded at one time
 
@@ -28,7 +29,7 @@ class DownloaderWorker:
                  analyze_queue: asyncio.Queue[AnalysisTask],
                  crawler_done_event: Event,
                  downloader_done_event: Event,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
+                 max_concurrent_requests: int):
         """
         Create a new downloader worker that asynchronously downloads jars from the maven central file tree
 

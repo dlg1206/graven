@@ -16,6 +16,7 @@ from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from log.logger import logger
 from shared.defaults import DEFAULT_MAX_CONCURRENT_REQUESTS, format_time
 from shared.heartbeat import Heartbeat
+from shared.utils import Timer
 
 DEFAULT_MAX_RETRIES = 3
 # todo - update to exclude javadocs, sources, etc
@@ -28,16 +29,15 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "tests", "with-dependencies",
 
 class CrawlerWorker:
     def __init__(self, database: BreadcrumbsDatabase, download_queue: Queue[Tuple[str, str]], crawler_done_event: Event,
-                 max_retries: int = DEFAULT_MAX_RETRIES,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
+                 max_retries: int, max_concurrent_requests: int):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
 
         :param database: The database to store any error messages in
         :param download_queue: Queue to add urls of jars to download to
         :param crawler_done_event: Flag to indicate to rest of pipeline that the crawler is finished
-        :param max_retries: Max number of retries to get a url from the crawl queue before exiting (default: 3)
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (default: 50)
+        :param max_retries: Max number of retries to get a url from the crawl queue before exiting
+        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._database = database
         self._crawl_queue = Queue()

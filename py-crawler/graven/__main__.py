@@ -12,7 +12,7 @@ from typing import Tuple, Coroutine
 
 from pip._internal.utils.temp_dir import TempDirectory
 
-from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_THREADS, check_for_grype
+from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, check_for_grype
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
@@ -33,13 +33,13 @@ async def _timed_task(worker_name: str, coroutine: Coroutine) -> Tuple[str, floa
     return worker_name, time.perf_counter() - start_time
 
 
-def _create_workers(max_retries: int, max_concurrent_requests: int, max_threads: int) \
+def _create_workers(max_retries: int, max_crawler_requests: int, max_downloader_requests: int, max_threads: int) \
         -> Tuple[CrawlerWorker, DownloaderWorker, AnalyzerWorker]:
     """
     Create the crawler, downloader, and analyzer workers used to create crawl for and processes jars
 
     :param max_retries: Max retries for crawler before terminating
-    :param max_concurrent_requests: Max allowed concurrent requests for crawler and downloader independently
+    :param max_crawler_requests: Max allowed concurrent requests for crawler and downloader independently
     :param max_threads: Max threads allowed to be used for scanning jars with grype
     :return: CrawlerWorker, DownloaderWorker, AnalyzerWorker
     """
@@ -57,9 +57,9 @@ def _create_workers(max_retries: int, max_concurrent_requests: int, max_threads:
     crawler_done_flag = asyncio.Event()
     downloader_done_flag = asyncio.Event()
     # create workers
-    c = CrawlerWorker(database, download_queue, crawler_done_flag, max_retries, max_concurrent_requests)
+    c = CrawlerWorker(database, download_queue, crawler_done_flag, max_retries, max_crawler_requests)
     d = DownloaderWorker(database, download_queue, analyze_queue, crawler_done_flag, downloader_done_flag,
-                         max_concurrent_requests)
+                         max_downloader_requests)
     a = AnalyzerWorker(database, analyze_queue, downloader_done_flag, max_threads)
     return c, d, a
 
@@ -70,8 +70,7 @@ async def _execute(args: Namespace) -> None:
 
     :param args: args to get command details from
     """
-    start_time = time.perf_counter()
-    crawler, downloader, analyzer = _create_workers(args.retries, args.concurrent_requests, args.threads)
+    crawler, downloader, analyzer = _create_workers(args.crawler_retries, args.crawler_requests, args.downloader_requests, args.analyzer_threads)
     download_limit = threading.Semaphore(args.jar_limit)
 
     # spawn tasks
@@ -95,42 +94,53 @@ def _create_parser() -> ArgumentParser:
     :return: Arg parser
     """
     parser = ArgumentParser(
-        description='Recursive and optimized crawler for scraping the Maven Central Repository',
-        prog='graven'
+        description="Recursive and optimized crawler for scraping the Maven Central Repository",
+        prog="graven"
     )
     # logging flags
-    parser.add_argument('-l', '--log-level',
-                        metavar='<log level>',
+    parser.add_argument("-l", "--log-level",
+                        metavar="<log level>",
                         choices=[Level.INFO.name, Level.DEBUG.name, Level.ERROR.name],
-                        help=f'Set log level (Default: INFO) ({[Level.INFO.name, Level.DEBUG.name, Level.ERROR.name]})',
+                        help=f"Set log level (Default: INFO) ({[Level.INFO.name, Level.DEBUG.name, Level.ERROR.name]})",
                         default=Level.INFO.name)
-    parser.add_argument('-s', '--silent',
-                        action='store_true',
-                        help='Run in silent mode',
+    parser.add_argument("-s", "--silent",
+                        action="store_true",
+                        help="Run in silent mode",
                         default=False)
     # start url
-    parser.add_argument('root_url', help="Root URL to start crawler at")
+    parser.add_argument("root_url", help="Root URL to start crawler at")
 
     # optional flags
-    parser.add_argument('-r', '--retries',
+    parser.add_argument("--crawler-retries",
+                        metavar="<number of retries>",
                         type=int,
-                        help="Max number of times to attempt to pop from the crawl queue before quitting",
+                        help=f"Max number of times to attempt to pop from the crawl queue before quitting (Default: {DEFAULT_MAX_RETRIES})",
                         default=DEFAULT_MAX_RETRIES
                         )
-    parser.add_argument('-c', '--concurrent_requests',
+
+    parser.add_argument("--crawler-requests",
+                        metavar="<number of requests>",
                         type=int,
-                        help="Max number of concurrent requests each worker can make at once",
+                        help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
                         default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-    parser.add_argument('-j', '--jar_limit',
+    parser.add_argument("--downloader-requests",
+                        metavar="<number of requests>",
                         type=int,
-                        help="Max number of jars allowed to be downloaded at once",
-                        default=DEFAULT_MAX_JAR_LIMIT)
+                        help=f"Max number of downloads downloader can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
+                        default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-    parser.add_argument('-t', '--threads',
+    parser.add_argument("--analyzer-threads",
+                        metavar="<number of the threads>",
                         type=int,
-                        help="Max number of threads allowed to be used to scan jars. Increase with caution",
-                        default=DEFAULT_MAX_THREADS)
+                        help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
+                        default=DEFAULT_MAX_ANALYZER_THREADS)
+
+    parser.add_argument("--jar-limit",
+                        metavar="<number of jars>",
+                        type=int,
+                        help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
+                        default=DEFAULT_MAX_JAR_LIMIT)
 
     return parser
 
@@ -152,5 +162,5 @@ def main() -> None:
     asyncio.run(_execute(args))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
