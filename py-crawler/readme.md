@@ -77,9 +77,11 @@ options:
                         Set log level (Default: INFO) (['INFO', 'DEBUG',
                         'ERROR'])
   -s, --silent          Run in silent mode
+  --root-url <starting url>
+                        Root URL to start crawler at
   --seed-urls-csv <path to csv>
-                        CSV file of additional root urls to restart the
-                        crawler at once the root url is exhausted
+                        CSV file of root urls to restart the crawler at once
+                        the current root url is exhausted
   -u, --update          Download jar and scan even if already in the database
 
 Crawler Options:

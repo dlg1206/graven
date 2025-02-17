@@ -151,10 +151,6 @@ class CrawlerWorker:
                     if cur_retries > self._max_retries:
                         # wait for task to finish to be absolutely sure no urls left
                         concurrent.futures.wait(tasks)
-                        # if there were urls left, retry
-                        if not self._crawl_queue.empty():
-                            cur_retries = 0
-                            continue
                         # restart with seed url if any left
                         if seed_urls:
                             new_root = seed_urls.pop(0)
@@ -162,6 +158,10 @@ class CrawlerWorker:
                             logger.info(f"Crawler exhausted {root_url}. Restarting with {new_root}")
                             root_url = new_root
                             self._crawl_queue.put(root_url)
+                            cur_retries = 0
+                            continue
+                        # if there were urls left, retry
+                        if not self._crawl_queue.empty():
                             cur_retries = 0
                             continue
                         # else exit

@@ -61,7 +61,7 @@ def _execute(args: Namespace) -> None:
     with TemporaryDirectory() as tmp_dir:
         timer.start()
         threads = [
-            crawler.start(args.root_url, seed_urls),
+            crawler.start(args.root_url if args.root_url else seed_urls.pop(), seed_urls),
             downloader.start(tmp_dir),
             analyzer.start()
         ]
@@ -97,10 +97,12 @@ def _create_parser() -> ArgumentParser:
                         help="Run in silent mode",
                         default=False)
     # start url
-    parser.add_argument("root_url", help="Root URL to start crawler at")
+    parser.add_argument("--root-url",
+                        metavar="<starting url>",
+                        help="Root URL to start crawler at")
     parser.add_argument("--seed-urls-csv",
                         metavar="<path to csv>",
-                        help="CSV file of additional root urls to restart the crawler at once the root url is exhausted")
+                        help="CSV file of root urls to restart the crawler at once the current root url is exhausted")
     parser.add_argument("-u", "--update",
                         action="store_true",
                         help="Download jar and scan even if already in the database")
@@ -160,7 +162,9 @@ def main() -> None:
     elif args.log_level is not None:
         # else update if option
         logger.set_log_level(args.log_level)
-
+    # at least 1 needs to be added
+    if not (args.root_url or args.seed_urls_csv):
+        logger.fatal("Please provide at least root_url or seed_url_csv")
     # create command
     _execute(args)
 
