@@ -9,7 +9,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from queue import LifoQueue, Queue
 from threading import Event, Thread
-from typing import Tuple
+from typing import Tuple, List
 
 import requests
 from requests import RequestException
@@ -121,11 +121,12 @@ class CrawlerWorker:
         logger.info(
             f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
 
-    def _crawl(self, root_url: str) -> None:
+    def _crawl(self, root_url: str, seed_urls: List[str] = None) -> None:
         """
        Continuously download and parse urls until the crawl urls is empty and retries exceeded
 
        :param root_url: Root url to start the crawler at
+       :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
        """
         # init crawler
         logger.info(f"Initializing crawler. . .")
@@ -137,7 +138,7 @@ class CrawlerWorker:
         cur_retries = 0
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
-            while cur_retries < self._max_retries:
+            while cur_retries <= self._max_retries:
                 try:
                     # Wait if queue is empty
                     url = self._crawl_queue.get(timeout=DEFAULT_TIMEOUT if self._crawl_queue.empty() else 0)
@@ -145,8 +146,19 @@ class CrawlerWorker:
                     self._heartbeat.beat(self._crawl_queue.qsize())
                     cur_retries = 0
                 except queue.Empty:
-                    # sleep and try again
                     cur_retries += 1
+                    # restart with seed url if any left
+                    if cur_retries > self._max_retries:
+                        if seed_urls:
+                            new_root = seed_urls.pop(0)
+                            new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
+                            logger.info(f"Crawler exhausted {root_url}. Restarting with {new_root}")
+                            root_url = new_root
+                            self._crawl_queue.put(root_url)
+                            cur_retries = 0
+                            continue
+                        # else exit
+                        break
                     logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
         logger.warn(f"Exceeded retries, waiting for remaining tasks to finish. . .")
         for task in tasks:
@@ -156,14 +168,19 @@ class CrawlerWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    def start(self, root_url: str) -> Thread:
+    def start(self, root_url: str, seed_urls: List[str] = None) -> Thread:
         """
         Spawn and start the crawler worker thread
 
         :param root_url: Root url to start the crawler at
+        :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
         :return: Crawler thread
         """
-        thread = Thread(target=self._crawl, args=(root_url,))
+        if seed_urls:
+            args = (root_url, seed_urls)
+        else:
+            args = (root_url,)
+        thread = Thread(target=self._crawl, args=args)
         thread.start()
         return thread
 

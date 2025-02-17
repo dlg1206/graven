@@ -4,6 +4,7 @@ Description: Main entrypoint for crawling operations
 
 @author Derek Garcia
 """
+import csv
 from argparse import ArgumentParser, Namespace
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -24,6 +25,18 @@ def _execute(args: Namespace) -> None:
     """
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
+
+    # parse seed urls if any
+    seed_urls = None
+    if args.seed_urls_csv:
+        try:
+            with open(args.seed_urls_csv) as file:
+                csv_reader = csv.reader(file)
+                seed_urls = [row[0] for row in csv_reader]
+        except Exception as e:
+            logger.fatal(e)
+
+    # make workers
     download_queue = Queue()
     analyze_queue = Queue()
     crawler = CrawlerWorker(database,
@@ -42,12 +55,13 @@ def _execute(args: Namespace) -> None:
                               analyze_queue,
                               downloader.get_downloader_done_flag(),
                               args.analyzer_threads)
+
     # spawn tasks
     timer = Timer()
     with TemporaryDirectory() as tmp_dir:
         timer.start()
         threads = [
-            crawler.start(args.root_url),
+            crawler.start(args.root_url, seed_urls),
             downloader.start(tmp_dir),
             analyzer.start()
         ]
@@ -84,6 +98,9 @@ def _create_parser() -> ArgumentParser:
                         default=False)
     # start url
     parser.add_argument("root_url", help="Root URL to start crawler at")
+    parser.add_argument("--seed-urls-csv",
+                        metavar="<path to csv>",
+                        help="CSV file of additional root urls to restart the crawler at once the root url is exhausted")
     parser.add_argument("-u", "--update",
                         action="store_true",
                         help="Download jar and scan even if already in the database")
