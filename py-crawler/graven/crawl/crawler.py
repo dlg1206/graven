@@ -4,6 +4,7 @@ Description: Crawl maven central repo for urls
 
 @author Derek Garcia
 """
+import concurrent
 import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +21,6 @@ from shared.heartbeat import Heartbeat
 from shared.utils import Timer
 
 DEFAULT_MAX_RETRIES = 3
-DEFAULT_TIMEOUT = 5  # longer timeout to be extra sure no other urls to parse
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 # non-jars that can be skipped
@@ -141,14 +141,21 @@ class CrawlerWorker:
             while cur_retries <= self._max_retries:
                 try:
                     # Wait if queue is empty
-                    url = self._crawl_queue.get(timeout=DEFAULT_TIMEOUT if self._crawl_queue.empty() else 0)
+                    url = self._crawl_queue.get_nowait()
                     tasks.append(exe.submit(self._process_url, url))
                     self._heartbeat.beat(self._crawl_queue.qsize())
                     cur_retries = 0
                 except queue.Empty:
                     cur_retries += 1
-                    # restart with seed url if any left
+
                     if cur_retries > self._max_retries:
+                        # wait for task to finish to be absolutely sure no urls left
+                        concurrent.futures.wait(tasks)
+                        # if there were urls left, retry
+                        if not self._crawl_queue.empty():
+                            cur_retries = 0
+                            continue
+                        # restart with seed url if any left
                         if seed_urls:
                             new_root = seed_urls.pop(0)
                             new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
