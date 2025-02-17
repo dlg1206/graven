@@ -6,12 +6,6 @@
 > [!NOTE]  
 > Make sure the database is running before running graven
 
-## Usage
-
-```bash
-python graven -h
-```
-
 ## Local Deployment
 
 ### Pre-req: Installing grype
@@ -57,19 +51,16 @@ pip install -r requirements.txt
 ```
 python3 graven -h
 
-usage: graven [-h] [-l <log level>] [-s] [-u]
+usage: graven [-h] [-l <log level>] [-s] [--root-url <starting url>]
+              [--seed-urls-csv <path to csv>] [-u]
               [--crawler-retries <number of retries>]
               [--crawler-requests <number of requests>]
               [--downloader-requests <number of requests>]
               [--jar-limit <number of jars>]
               [--analyzer-threads <number of the threads>]
               [--grype-path <absolute path to grype binary>]
-              root_url
 
 Recursive and optimized crawler for scraping the Maven Central Repository
-
-positional arguments:
-  root_url              Root URL to start crawler at
 
 options:
   -h, --help            show this help message and exit
