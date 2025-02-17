@@ -14,6 +14,7 @@ import queue
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from queue import Queue
 from threading import Event, Thread
 
@@ -101,7 +102,7 @@ class AnalyzerWorker:
                     f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
 
             self._database.upsert_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
-                                                        cve_ids)
+                                                        cve_ids, datetime.now(timezone.utc))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)

@@ -6,7 +6,7 @@ Description: MySQL database interface for CVE-Breadcrumbs database
 @author Derek Garcia
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import List
 
@@ -43,7 +43,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
             logger.fatal(e)
         logger.info("Connected to the database")
 
-    def save_domain_url_as_seen(self, url: str, last_crawled: datetime = datetime.now(timezone.utc)) -> None:
+    def save_domain_url_as_seen(self, url: str, last_crawled: datetime) -> None:
         """
         Save that this domain has been crawled
 
@@ -77,7 +77,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
     def upsert_jar_and_grype_results(self, jar_url: str,
                                      published_date: datetime,
                                      cves: List[str],
-                                     last_scanned: datetime = datetime.now(timezone.utc)) -> None:
+                                     last_scanned: datetime) -> None:
         """
         Add a jar to the database and any associated CVEs
 

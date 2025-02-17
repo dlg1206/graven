@@ -8,6 +8,7 @@ import concurrent
 import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from queue import LifoQueue, Queue
 from threading import Event, Thread
 from typing import Tuple, List
@@ -163,7 +164,7 @@ class CrawlerWorker:
                             cur_retries = 0
                             continue
                         # report that this domain was searched
-                        self._database.save_domain_url_as_seen(root_url)
+                        self._database.save_domain_url_as_seen(root_url, datetime.now(timezone.utc))
                         # restart with seed url if any left
                         if seed_urls:
                             new_root = seed_urls.pop(0)
