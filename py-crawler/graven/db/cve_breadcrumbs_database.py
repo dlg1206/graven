@@ -5,7 +5,8 @@ Description: MySQL database interface for CVE-Breadcrumbs database
 
 @author Derek Garcia
 """
-import datetime
+
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List
 
@@ -42,27 +43,48 @@ class BreadcrumbsDatabase(MySQLDatabase):
             logger.fatal(e)
         logger.info("Connected to the database")
 
-    def seen_url(self, url: str) -> bool:
+    def save_domain_url_as_seen(self, url: str, last_crawled: datetime = datetime.now(timezone.utc)) -> None:
+        """
+        Save that this domain has been crawled
+
+        :param url: URL of root domain fully crawled
+        :param last_crawled: Timestamp of when last crawled domain (Default: now)
+        """
+        self._insert(Data.DOMAIN,
+                     [
+                         ('url', url),
+                         ('last_crawled', last_crawled)],
+                     on_success_msg=f"Marked domain '{url}' as explored")
+
+    def has_seen_domain_url(self, url: str) -> bool:
+        """
+        Check if the database has seen these domains before
+
+        :param url: URL to check
+        :return: True if seen, false otherwise
+        """
+        return len(self._select(Data.DOMAIN, where_equals=[('url', url)])) != 0
+
+    def has_seen_jar_url(self, url: str) -> bool:
         """
         Check if the database has seen these jars before
 
         :param url: URL to check
         :return: True if seen, false otherwise
         """
-        foo = self._select(Data.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])
         return len(self._select(Data.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
 
     def upsert_jar_and_grype_results(self, jar_url: str,
                                      published_date: datetime,
                                      cves: List[str],
-                                     last_scanned: datetime) -> None:
+                                     last_scanned: datetime = datetime.now(timezone.utc)) -> None:
         """
         Add a jar to the database and any associated CVEs
 
         :param jar_url: URL of jar
         :param published_date: Date when the jar was published
         :param cves: List of CVEs associated with the jar
-        :param last_scanned: Date last scanned with grype
+        :param last_scanned: Date last scanned with grype (Default: now)
         """
         components = jar_url.replace(MAVEN_CENTRAL_ROOT, "").split("/")
         jar_id = components[-1]

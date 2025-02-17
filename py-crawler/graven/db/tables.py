@@ -17,6 +17,7 @@ class Data(Table):
     CWE = "cwe"
     JAR = "jar"
     ERROR_LOG = "error_log"
+    DOMAIN = "domain"
 
 
 class Association(JoinTable):

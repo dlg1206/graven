@@ -74,8 +74,8 @@ class CrawlerWorker:
             if match.group(2) and not match.group(2).removesuffix(".jar").lower().endswith(SKIP_JAR_SUFFIXES):
                 download_url = f"{url}{match.group(2)}"
                 # Skip if seen the url and not updating
-                if not self._update and self._database.seen_url(download_url):
-                    logger.debug_msg(f"Found jar url, but already seen. Skipping. . . | {download_url}")
+                if not self._update and self._database.has_seen_jar_url(download_url):
+                    logger.warn(f"Found jar url, but already seen. Skipping. . . | {download_url}")
                     continue
 
                 self._download_queue.put((download_url, match.group(3).strip()))  # save jar url and timestamp
@@ -142,6 +142,11 @@ class CrawlerWorker:
                 try:
                     # Wait if queue is empty
                     url = self._crawl_queue.get_nowait()
+                    # Skip if seen the url and not updating
+                    if not self._update and self._database.has_seen_domain_url(url):
+                        logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
+                        self._crawl_queue.task_done()
+                        continue
                     tasks.append(exe.submit(self._process_url, url))
                     self._heartbeat.beat(self._crawl_queue.qsize())
                     cur_retries = 0
@@ -150,18 +155,22 @@ class CrawlerWorker:
 
                     if cur_retries > self._max_retries:
                         # wait for task to finish to be absolutely sure no urls left
+                        logger.warn(f"Exceeded retries, ensuring tasks are done. . .")
                         concurrent.futures.wait(tasks)
+                        # if there were urls left, retry
+                        if not self._crawl_queue.empty():
+                            logger.info(f"Found new urls to crawl, restarting")
+                            cur_retries = 0
+                            continue
+                        # report that this domain was searched
+                        self._database.save_domain_url_as_seen(root_url)
                         # restart with seed url if any left
                         if seed_urls:
                             new_root = seed_urls.pop(0)
                             new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
-                            logger.info(f"Crawler exhausted {root_url}. Restarting with {new_root}")
+                            logger.info(f"Crawler exhausted '{root_url}'. Restarting with '{new_root}'")
                             root_url = new_root
                             self._crawl_queue.put(root_url)
-                            cur_retries = 0
-                            continue
-                        # if there were urls left, retry
-                        if not self._crawl_queue.empty():
                             cur_retries = 0
                             continue
                         # else exit
