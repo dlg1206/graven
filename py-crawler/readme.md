@@ -59,6 +59,7 @@ usage: graven [-h] [-l <log level>] [-s] [--root-url <starting url>]
               [--jar-limit <number of jars>]
               [--analyzer-threads <number of the threads>]
               [--grype-path <absolute path to grype binary>]
+              [--grype-db-source <url of grype database to use>]
 
 Recursive and optimized crawler for scraping the Maven Central Repository
 
@@ -98,4 +99,7 @@ Analyzer Options:
   --grype-path <absolute path to grype binary>
                         Path to Grype binary to use. By default, assumes grype
                         is already on the PATH
+  --grype-db-source <url of grype database to use>
+                        URL of specific grype database to use. To see the full
+                        list, run 'grype db list'
 ```

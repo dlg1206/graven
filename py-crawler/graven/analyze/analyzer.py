@@ -9,42 +9,26 @@ Description: Use grype to scan jars to find CVEs
 import concurrent
 import json
 import os
-import platform
 import queue
-import subprocess
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import Queue
 from threading import Event, Thread
 
 from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
+from grype.grype import GrypeScanFailure, Grype
 from log.logger import logger
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
 
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
-GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 ANALYZE_QUEUE_TIMEOUT = 0
-
-
-class GrypeScanFailure(RuntimeError):
-    def __init__(self, source_url: str, stderr: str):
-        """
-        Create new scan failure
-
-        :param source_url: URL of the jar source
-        :param stderr: grype stderr output
-        """
-        super().__init__(f"grype scan failed for {source_url}")
-        self.source_url = source_url
-        self.stderr = stderr
 
 
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 grype_path: str,
+                 grype: Grype,
                  analyze_queue: Queue[AnalysisTask],
                  downloader_done_event: Event,
                  max_threads: int):
@@ -52,13 +36,13 @@ class AnalyzerWorker:
         Create a new analyzer worker that spawns threads to process jars using grype
 
         :param database: The database to save grype results and store any error messages in
-        :param grype_path: The path to the grype executable
+        :param grype: Grype interface to use for scanning
         :param analyze_queue: Queue of tasks to analyze
         :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
         self._database = database
-        self._grype_path = grype_path
+        self._grype = grype
         self._analyze_queue = analyze_queue
         self._downloader_done_event = downloader_done_event
         self._max_threads = max_threads
@@ -67,30 +51,19 @@ class AnalyzerWorker:
         self._timer = Timer()
         self._jars_scanned = 0
 
-        self._verify_grype_installation()
-
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
         Use grype to scan a jar
 
         :param analysis_task: Task with jar path and additional details
         """
-        start_time = time.time()
+
         cve_ids = []
         # scan
         try:
-            result = subprocess.run([self._grype_path, "--by-cve",
-                                     "-f", "negligible",
-                                     f"-o json={analysis_task.get_grype_file_path()}",
-                                     analysis_task.get_file_path()],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            # non-zero, non-one error
-            if result.returncode and result.returncode != 1:
-                raise GrypeScanFailure(analysis_task.get_filename(), result.stderr.decode())
-            logger.debug_msg(f"Scanned {analysis_task.get_file_path()} in {time.time() - start_time:.2f}s")
-
+            return_code = self._grype.scan(analysis_task.get_file_path(), analysis_task.get_grype_file_path())
             # return.code == 1, which means cves were found
-            if result.returncode:
+            if return_code:
                 # save results
                 with open(analysis_task.get_grype_file_path(), "r") as file:
                     grype_data = json.load(file)
@@ -120,7 +93,6 @@ class AnalyzerWorker:
         the analysis queue is empty and retries exceeded
         """
         logger.info(f"Initializing analyzer . .")
-        self._update_grype_db()
         # start the analyzer
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         tasks = []
@@ -157,41 +129,6 @@ class AnalyzerWorker:
         # done
         self._timer.stop()
         self.print_statistics_message()
-
-    def _update_grype_db(self) -> None:
-        # update local grype db if needed
-        logger.info(f"Checking grype database status. . .")
-        db_status = subprocess.run([f"{self._grype_path}", "db", "check"],
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL).returncode
-        if db_status:
-            start_time = time.time()
-            logger.warn("grype database needs to be updated!")
-            logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
-            logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
-            subprocess.run([f"{self._grype_path}", "db", "update"], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-            logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
-
-        logger.info(f"grype database is up to date")
-
-    def _verify_grype_installation(self) -> None:
-        """
-        Check that grype is installed
-
-        :raises FileNotFoundError: if grype is not present
-        """
-        try:
-            result = subprocess.run(
-                f"{self._grype_path} --version",
-                shell=True,
-                capture_output=True,  # Capture stdout & stderr
-                text=True,  # Return output as string
-                check=True  # Raise error if command fails
-            )
-        except subprocess.CalledProcessError:
-            raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
-        logger.info(f"Using {result.stdout.strip()}")
 
     def print_statistics_message(self) -> None:
         """

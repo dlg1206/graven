@@ -9,10 +9,11 @@ from argparse import ArgumentParser, Namespace
 from queue import Queue
 from tempfile import TemporaryDirectory
 
-from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS, GRYPE_BIN
+from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
 from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
+from grype.grype import Grype, GRYPE_BIN
 from log.logger import Level, logger
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 
@@ -39,6 +40,9 @@ def _execute(args: Namespace) -> None:
     # make workers
     download_queue = Queue()
     analyze_queue = Queue()
+
+    grype = Grype(bin_path=args.grype_path, db_source_url=args.grype_db_source) if args.grype_path else Grype(
+        db_source_url=args.grype_db_source)
     crawler = CrawlerWorker(database,
                             args.update,
                             download_queue,
@@ -51,7 +55,7 @@ def _execute(args: Namespace) -> None:
                                   args.downloader_requests,
                                   args.jar_limit)
     analyzer = AnalyzerWorker(database,
-                              args.grype_path,
+                              grype,
                               analyze_queue,
                               downloader.get_downloader_done_flag(),
                               args.analyzer_threads)
@@ -146,6 +150,11 @@ def _create_parser() -> ArgumentParser:
                                 type=str,
                                 help=f"Path to Grype binary to use. By default, assumes grype is already on the PATH",
                                 default=GRYPE_BIN)
+
+    analyzer_group.add_argument("--grype-db-source",
+                                metavar="<url of grype database to use>",
+                                type=str,
+                                help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
 
     return parser
 
