@@ -106,10 +106,10 @@ class AnalyzerWorker:
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, e.stderr, e.source_url)
+            self._database.log_error(Stage.ANALYZER, analysis_task.get_url(), e, "grype failed to scan")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, str(e), analysis_task.get_url())
+            self._database.log_error(Stage.ANALYZER, analysis_task.get_url(), e, "error when scanning with grype")
         finally:
             analysis_task.cleanup()
             self._analyze_queue.task_done()
@@ -144,11 +144,12 @@ class AnalyzerWorker:
                     continue
                 except Exception as e:
                     logger.error_exp(e)
-                    self._database.log_error(
-                        Stage.ANALYZER,
-                        f"{type(e).__name__} | {e.__str__()} | {analysis_task.get_filename()}")
+                    url = None
                     if analysis_task:
+                        url = analysis_task.get_url()
                         analysis_task.cleanup()
+
+                    self._database.log_error(Stage.ANALYZER, url, e, "Failed during loop")
 
         logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(tasks)

@@ -5,10 +5,10 @@ Description: MySQL database interface for CVE-Breadcrumbs database
 
 @author Derek Garcia
 """
-
+import json
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import List, Dict, Any
 
 from mysql.connector import ProgrammingError, DatabaseError
 
@@ -103,15 +103,21 @@ class BreadcrumbsDatabase(MySQLDatabase):
             self._insert(Data.CVE, [('cve_id', cve_id)], on_success_msg=f"Add new cve '{cve_id}'")
             self._insert(Association.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)])
 
-    def log_error(self, stage: Stage, message: str, uri: str = None) -> None:
+    def log_error(self, stage: Stage, url: str, error: Exception, comment: str = None,
+                  details: Dict[Any, Any] = None) -> None:
         """
         Log an error in the database
 
         :param stage: Stage of pipeline the error occurred at
-        :param message: Error message
-        :param uri: URI of resource
+        :param url: URL of resource
+        :param error: Error that occurred
+        :param comment: Optional comment about error
+        :param details: Option JSON data to include to help debug error
         """
-        inserts = [('stage', stage.value), ('message', message)]
-        if uri:
-            inserts.append(('uri', uri))
+        inserts = [('stage', stage.value), ('url', url),
+                   ('error_type', type(error).__name__), ('error_message', str(error))]
+        if comment:
+            inserts.append(('comment', comment))
+        if details:
+            inserts.append(('details', json.dumps(details)))
         self._insert(Data.ERROR_LOG, inserts)

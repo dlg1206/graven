@@ -87,12 +87,14 @@ class DownloaderWorker:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(Stage.DOWNLOADER, f"{e.response.status_code} | {str(e)}", url)
+                self._database.log_error(Stage.DOWNLOADER, url, e,
+                                         comment="Failed to download jar",
+                                         details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(Stage.DOWNLOADER, "Failed to download jar", url)
+                self._database.log_error(Stage.DOWNLOADER, url, e, "Failed to download jar")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.CRAWLER, f"{type(e).__name__} | {e.__str__()}", url)
+            self._database.log_error(Stage.DOWNLOADER, url, e, "Error in download")
             analysis_task.cleanup()  # rm and release if anything goes wrong
         finally:
             self._download_queue.task_done()
