@@ -30,15 +30,15 @@ ANALYZE_QUEUE_TIMEOUT = 0
 
 
 class GrypeScanFailure(RuntimeError):
-    def __init__(self, file_name: str, stderr: str):
+    def __init__(self, source_url: str, stderr: str):
         """
         Create new scan failure
 
-        :param file_name: Name of file scanned
+        :param source_url: URL of the jar source
         :param stderr: grype stderr output
         """
-        super().__init__(f"grype scan failed for {file_name}")
-        self.file_name = file_name
+        super().__init__(f"grype scan failed for {source_url}")
+        self.source_url = source_url
         self.stderr = stderr
 
 
@@ -106,10 +106,10 @@ class AnalyzerWorker:
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, e.stderr, e.file_name)
+            self._database.log_error(Stage.ANALYZER, e.stderr, e.source_url)
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, str(e), analysis_task.get_filename())
+            self._database.log_error(Stage.ANALYZER, str(e), analysis_task.get_url())
         finally:
             analysis_task.cleanup()
             self._analyze_queue.task_done()
