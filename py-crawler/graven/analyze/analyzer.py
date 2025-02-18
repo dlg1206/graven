@@ -10,10 +10,12 @@ import concurrent
 import json
 import os
 import queue
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import Queue
 from threading import Event, Thread
+from typing import Tuple, List
 
 from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from grype.grype import GrypeScanFailure, Grype
@@ -48,9 +50,28 @@ class AnalyzerWorker:
         self._max_threads = max_threads
 
         self._heartbeat = Heartbeat("Analysis")
+        self._database_upload_queue: Queue[Tuple[str, datetime, List[str], datetime]] = Queue()
         self._timer = Timer()
         self._jars_scanned = 0
         self._run_id = None
+
+    def _save_grype_results_worker(self, terminate: Event) -> None:
+        """
+        Dedicated worker to constantly upload results to the database
+
+        :param terminate: Event to signal to finish what is in the queue
+        :return:
+        """
+        while not (terminate.is_set() and self._database_upload_queue.empty()):
+            try:
+                r = self._database_upload_queue.get_nowait()
+                self._database.upsert_jar_and_grype_results(self._run_id, r[0], r[1], r[2], r[3])
+            except queue.Empty:
+                """
+                To prevent deadlocks, the forced timeout with throw this error 
+                for another iteration of the loop to check conditions
+                """
+                continue
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -74,10 +95,8 @@ class AnalyzerWorker:
                                 vuln["vulnerability"]["id"].startswith("CVE")})
                 logger.info(
                     f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
-
-            self._database.upsert_jar_and_grype_results(self._run_id, analysis_task.get_url(),
-                                                        analysis_task.get_publish_date(),
-                                                        cve_ids, datetime.now(timezone.utc))
+            # add updates to queue to add later
+            self._database_upload_queue.put((analysis_task.get_url(), analysis_task.get_publish_date(), cve_ids, datetime.now(timezone.utc)))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
@@ -96,6 +115,10 @@ class AnalyzerWorker:
         the analysis queue is empty and retries exceeded
         """
         logger.info(f"Initializing analyzer . .")
+        # create dedicated uploader
+        terminate = Event()
+        upload_worker = Thread(target=self._save_grype_results_worker, args=(terminate,))
+        upload_worker.start()
         # start the analyzer
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         tasks = []
@@ -128,7 +151,10 @@ class AnalyzerWorker:
 
         logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(tasks)
-        logger.warn(f"All scans finished, exiting. . .")
+        logger.warn(f"All scans finished, waiting for all results to be saved. . .")
+        terminate.set()
+        upload_worker.join()
+        logger.warn(f"All data saved, exiting. . .")
         # done
         self._timer.stop()
         self.print_statistics_message()
