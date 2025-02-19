@@ -6,6 +6,7 @@ Description: Main entrypoint for crawling operations
 """
 import csv
 from argparse import ArgumentParser, Namespace
+from datetime import datetime, timezone
 from queue import Queue
 from tempfile import TemporaryDirectory
 
@@ -64,15 +65,17 @@ def _execute(args: Namespace) -> None:
     timer = Timer()
     with TemporaryDirectory() as tmp_dir:
         timer.start()
+        run_id = database.log_run_start(grype.get_version(), grype.get_db_source())
         threads = [
-            crawler.start(args.root_url if args.root_url else seed_urls.pop(), seed_urls),
-            downloader.start(tmp_dir),
-            analyzer.start()
+            crawler.start(run_id, args.root_url if args.root_url else seed_urls.pop(), seed_urls),
+            downloader.start(run_id, tmp_dir),
+            analyzer.start(run_id)
         ]
         for t in threads:
             t.join()
 
     # print task durations
+    database.log_run_end(run_id, datetime.now(timezone.utc))
     timer.stop()
     logger.info(f"Total Execution Time: {timer.format_time()}")
     crawler.print_statistics_message()

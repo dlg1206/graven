@@ -16,8 +16,9 @@ class Data(Table):
     CVE = "cve"
     CWE = "cwe"
     JAR = "jar"
-    ERROR_LOG = "error_log"
     DOMAIN = "domain"
+    ERROR_LOG = "error_log"
+    RUN_LOG = "run_log"
 
 
 class Association(JoinTable):

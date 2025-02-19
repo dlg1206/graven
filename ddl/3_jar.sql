@@ -7,5 +7,7 @@ CREATE TABLE IF NOT EXISTS jar
     artifact_id  VARCHAR(255),
     version      VARCHAR(100),
     publish_date TIMESTAMP,
-    last_scanned TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_scanned TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    run_id       INTEGER,
+    FOREIGN KEY (run_id) REFERENCES run_log (run_id)
 );

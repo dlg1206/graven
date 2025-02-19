@@ -5,5 +5,7 @@ CREATE TABLE IF NOT EXISTS jar__cve
     cve_id VARCHAR(20),
     PRIMARY KEY (jar_id, cve_id),
     FOREIGN KEY (jar_id) REFERENCES jar (jar_id),
-    FOREIGN KEY (cve_id) REFERENCES cve (cve_id)
+    FOREIGN KEY (cve_id) REFERENCES cve (cve_id),
+    run_id INTEGER,
+    FOREIGN KEY (run_id) REFERENCES run_log (run_id)
 );

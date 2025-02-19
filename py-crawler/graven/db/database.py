@@ -84,13 +84,14 @@ class MySQLDatabase:
             if cur:
                 cur.close()
 
-    def _insert(self, table: Table, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> None:
+    def _insert(self, table: Table, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
         :param table: Table to insert into
         :param inserts: Values to insert (column, value)
         :param on_success_msg: Optional debug message to print on success (default: nothing)
+        :return: Autoincrement id of inserted row if used, else None
         """
         with self._open_connection() as conn:
             with self._get_cursor(conn) as cur:
@@ -115,10 +116,13 @@ class MySQLDatabase:
                 except connector.Error as oe:
                     # failed to insert
                     logger.error_exp(oe)
+                    return None
+                # return auto incremented id if used
+                return cur.lastrowid
 
     def _select(self, table: Table, columns: List[str] = None,
                 where_equals: List[Tuple[str, Any]] = None) \
-            -> List[Tuple[str]]:
+            -> List[Tuple[Any]]:
         """
         Generic select from the database
 

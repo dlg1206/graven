@@ -55,6 +55,7 @@ class DownloaderWorker:
         self._heartbeat = Heartbeat("Downloader")
         self._timer = Timer()
         self._downloaded_jars = 0
+        self._run_id = None
 
     def _download_jar(self, analysis_task: AnalysisTask) -> None:
         """
@@ -87,14 +88,14 @@ class DownloaderWorker:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(Stage.DOWNLOADER, url, e,
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e,
                                          comment="Failed to download jar",
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(Stage.DOWNLOADER, url, e, "Failed to download jar")
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e, "Failed to download jar")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.DOWNLOADER, url, e, "Error in download")
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e, "Error in download")
             analysis_task.cleanup()  # rm and release if anything goes wrong
         finally:
             self._download_queue.task_done()
@@ -149,13 +150,15 @@ class DownloaderWorker:
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
 
-    def start(self, download_dir_path: str) -> Thread:
+    def start(self, run_id: int, download_dir_path: str) -> Thread:
         """
         Spawn and start the downloader worker thread
 
+        :param run_id: ID of run
         :param download_dir_path: Path to directory to download jars to
         :return: Downloader thread
         """
+        self._run_id = run_id
         thread = Thread(target=self._download, args=(download_dir_path,))
         thread.start()
         return thread

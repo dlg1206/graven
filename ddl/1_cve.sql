@@ -4,5 +4,7 @@ CREATE TABLE IF NOT EXISTS cve
     cve_id       VARCHAR(20) PRIMARY KEY,
     cvss         DOUBLE,
     publish_date TIMESTAMP,
-    description  TEXT
+    description  TEXT,
+    run_id       INTEGER,
+    FOREIGN KEY (run_id) REFERENCES run_log (run_id)
 );

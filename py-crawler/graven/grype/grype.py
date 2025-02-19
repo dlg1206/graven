@@ -56,6 +56,10 @@ class Grype:
         self._bin_path = bin_path
         self._db_source_url = db_source_url
         self._verify_grype_installation()
+        # ensure auto updates are off
+        os.environ["GRYPE_DB_AUTO_UPDATE"] = "false"
+        os.environ["GRYPE_CHECK_FOR_APP_UPDATE"] = "false"
+
         # install requested db if not match
         if db_source_url and not self._cache_match_url():
             try:
@@ -76,7 +80,7 @@ class Grype:
             version = self.get_version()
         except subprocess.CalledProcessError:
             raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
-        logger.info(f"Using {version}")
+        logger.info(f"Using grype {version}")
 
     def _get_grype_cache_dir(self) -> str:
         """
@@ -196,7 +200,7 @@ class Grype:
             text=True,  # Return output as string
             check=True  # Raise error if command fails
         )
-        return result.stdout.strip()
+        return result.stdout.strip().removeprefix("grype ")
 
     def get_db_source(self) -> str | None:
         """

@@ -50,6 +50,7 @@ class AnalyzerWorker:
         self._heartbeat = Heartbeat("Analysis")
         self._timer = Timer()
         self._jars_scanned = 0
+        self._run_id = None
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -74,15 +75,17 @@ class AnalyzerWorker:
                 logger.info(
                     f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
 
-            self._database.upsert_jar_and_grype_results(analysis_task.get_url(), analysis_task.get_publish_date(),
+            self._database.upsert_jar_and_grype_results(self._run_id, analysis_task.get_url(),
+                                                        analysis_task.get_publish_date(),
                                                         cve_ids, datetime.now(timezone.utc))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, analysis_task.get_url(), e, "grype failed to scan")
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.get_url(), e, "grype failed to scan")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.ANALYZER, analysis_task.get_url(), e, "error when scanning with grype")
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.get_url(), e,
+                                     "error when scanning with grype")
         finally:
             analysis_task.cleanup()
             self._analyze_queue.task_done()
@@ -121,7 +124,7 @@ class AnalyzerWorker:
                         url = analysis_task.get_url()
                         analysis_task.cleanup()
 
-                    self._database.log_error(Stage.ANALYZER, url, e, "Failed during loop")
+                    self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
 
         logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(tasks)
@@ -138,12 +141,14 @@ class AnalyzerWorker:
         logger.info(
             f"Analyzer has scanned {self._jars_scanned} jars ({self._timer.get_count_per_second(self._jars_scanned):.01f} jars / s)")
 
-    def start(self) -> Thread:
+    def start(self, run_id: int) -> Thread:
         """
         Spawn and start the analyzer worker thread
 
+        :param run_id: ID of run
         :return: Analyzer thread
         """
+        self._run_id = run_id
         thread = Thread(target=self._analyze)
         thread.start()
         return thread

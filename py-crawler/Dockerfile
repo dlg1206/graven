@@ -11,8 +11,12 @@ RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh |
 
 FROM python:3.12.9-alpine3.21 AS graven
 LABEL maintainer="Derek Garcia <dgarcia2@hawaii.edu"
-LABEL version=1.0.0
+LABEL version=1.1.0
 LABEL name=graven
+# prevent update mid scan
+ENV GRYPE_DB_AUTO_UPDATE=false
+ENV GRYPE_CHECK_FOR_APP_UPDATE=false
+
 # create user
 RUN adduser -D graven
 WORKDIR /home/graven

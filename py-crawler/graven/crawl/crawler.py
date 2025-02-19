@@ -54,6 +54,7 @@ class CrawlerWorker:
         self._heartbeat = Heartbeat("Crawler")
         self._timer = Timer()
         self._urls_seen = 0
+        self._run_id = None
 
     def _parse_html(self, url: str, html: str) -> None:
         """
@@ -97,14 +98,14 @@ class CrawlerWorker:
             # failed to get url
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(Stage.CRAWLER, url, e,
+                self._database.log_error(self._run_id, Stage.CRAWLER, url, e,
                                          comment="Failed to download page",
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(Stage.CRAWLER, url, e, "Failed to download page")
+                self._database.log_error(self._run_id, Stage.CRAWLER, url, e, "Failed to download page")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(Stage.CRAWLER, url, e, "Error in crawl")
+            self._database.log_error(self._run_id, Stage.CRAWLER, url, e, "Error in crawl")
 
     def _process_url(self, url: str) -> None:
         """
@@ -166,7 +167,7 @@ class CrawlerWorker:
                             cur_retries = 0
                             continue
                         # report that this domain was searched
-                        self._database.save_domain_url_as_seen(root_url, datetime.now(timezone.utc))
+                        self._database.save_domain_url_as_seen(self._run_id, root_url, datetime.now(timezone.utc))
                         # restart with seed url if any left
                         if seed_urls:
                             new_root = seed_urls.pop(0)
@@ -187,10 +188,11 @@ class CrawlerWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    def start(self, root_url: str, seed_urls: List[str] = None) -> Thread:
+    def start(self, run_id: int, root_url: str, seed_urls: List[str] = None) -> Thread:
         """
         Spawn and start the crawler worker thread
 
+        :param run_id: ID of run
         :param root_url: Root url to start the crawler at
         :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
         :return: Crawler thread
@@ -199,6 +201,7 @@ class CrawlerWorker:
             args = (root_url, seed_urls)
         else:
             args = (root_url,)
+        self._run_id = run_id
         thread = Thread(target=self._crawl, args=args)
         thread.start()
         return thread
