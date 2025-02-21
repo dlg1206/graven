@@ -22,7 +22,7 @@ For Windows: Go to the [releases](https://github.com/anchore/grype/releases) pag
 
 Either place the path to the binary on the PATH or use the `--grype-path` argument to use an absolute path.
 
-### Deployment
+### Local Deployment
 
 1. Create venv
 
@@ -39,6 +39,7 @@ python -m venv venv
 3. Install dependencies
 
 ```bash
+pip install ../common
 pip install -r requirements.txt
 ```
 

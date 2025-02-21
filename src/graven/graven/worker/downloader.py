@@ -14,10 +14,10 @@ from threading import Event, Semaphore, Thread
 from typing import Tuple
 
 import requests
+from common.logger import logger
 from requests import RequestException
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from log.logger import logger
+from cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks

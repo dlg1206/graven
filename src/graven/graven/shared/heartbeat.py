@@ -7,7 +7,7 @@ Description: Heartbeat logger to post updates of queue status
 """
 import time
 
-from log.logger import Level, logger
+from common.logger import Level, logger
 
 DEFAULT_HEARTBEAT_INTERVAL = 5
 

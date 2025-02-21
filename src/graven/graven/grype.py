@@ -14,8 +14,7 @@ from tempfile import TemporaryDirectory
 
 import requests
 import yaml
-
-from log.logger import logger
+from common.logger import logger
 
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 DB_SOURCE_FILE = "db_source"

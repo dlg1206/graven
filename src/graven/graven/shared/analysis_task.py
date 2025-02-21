@@ -9,7 +9,7 @@ import os
 import threading
 from datetime import datetime
 
-from log.logger import logger
+from common.logger import logger
 
 
 class AnalysisTask:

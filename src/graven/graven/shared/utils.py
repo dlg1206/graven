@@ -10,7 +10,7 @@ import time
 from queue import Queue, Empty
 from threading import Event
 
-from log.logger import logger
+from common.logger import logger
 
 DEFAULT_MAX_CONCURRENT_REQUESTS = os.cpu_count()
 

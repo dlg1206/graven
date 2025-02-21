@@ -10,11 +10,10 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Dict, Any
 
+from common.database import MySQLDatabase
+from common.database import Table, JoinTable
+from common.logger import logger
 from mysql.connector import ProgrammingError, DatabaseError
-
-from db.database import MySQLDatabase
-from db.tables import Data, Association
-from log.logger import logger
 
 DEFAULT_POOL_SIZE = 32
 
@@ -50,7 +49,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param url: URL to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Data.DOMAIN, where_equals=[('url', url)])) != 0
+        return len(self._select(Table.DOMAIN, where_equals=[('url', url)])) != 0
 
     def has_seen_jar_url(self, url: str) -> bool:
         """
@@ -59,7 +58,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param url: URL to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Data.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
+        return len(self._select(Table.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
 
     def save_domain_url_as_seen(self, run_id: int, url: str, last_crawled: datetime) -> None:
         """
@@ -69,7 +68,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param url: URL of root domain fully crawled
         :param last_crawled: Timestamp of when last crawled domain (Default: now)
         """
-        self._upsert(Data.DOMAIN, ('url', url), [('run_id', run_id), ('last_crawled', last_crawled)])
+        self._upsert(Table.DOMAIN, ('url', url), [('run_id', run_id), ('last_crawled', last_crawled)])
 
     def upsert_jar_and_grype_results(self, run_id: int, jar_url: str,
                                      published_date: datetime,
@@ -96,11 +95,11 @@ class BreadcrumbsDatabase(MySQLDatabase):
             ('publish_date', published_date),
             ('last_scanned', last_scanned)
         ]
-        self._upsert(Data.JAR, ('jar_id', jar_id), inserts)
+        self._upsert(Table.JAR, ('jar_id', jar_id), inserts)
         # add cves
         for cve_id in cves:
-            self._insert(Data.CVE, [('cve_id', cve_id), ('run_id', run_id)], on_success_msg=f"Add new cve '{cve_id}'")
-            self._insert(Association.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id), ('run_id', run_id)])
+            self._insert(Table.CVE, [('cve_id', cve_id), ('run_id', run_id)], on_success_msg=f"Add new cve '{cve_id}'")
+            self._insert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id), ('run_id', run_id)])
 
     def log_run_start(self, grype_version: str, grype_db_source: str) -> int:
         """
@@ -110,7 +109,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param grype_db_source: URL source of grype used
         :return: run id
         """
-        run_id = self._insert(Data.RUN_LOG, [('grype_version', grype_version), ('grype_db_source', grype_db_source)])
+        run_id = self._insert(Table.RUN_LOG, [('grype_version', grype_version), ('grype_db_source', grype_db_source)])
         return run_id
 
     def log_run_end(self, run_id: int, run_end_time: datetime) -> None:
@@ -120,7 +119,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param run_id: ID of run to end
         :param run_end_time: Time run ended
         """
-        self._update(Data.RUN_LOG, [('end', run_end_time)], [('run_id', run_id)])
+        self._update(Table.RUN_LOG, [('end', run_end_time)], [('run_id', run_id)])
 
     def log_error(self, run_id: int, stage: Stage, url: str, error: Exception, comment: str = None,
                   details: Dict[Any, Any] = None) -> None:
@@ -140,4 +139,4 @@ class BreadcrumbsDatabase(MySQLDatabase):
             inserts.append(('comment', comment))
         if details:
             inserts.append(('details', json.dumps(details)))
-        self._insert(Data.ERROR_LOG, inserts)
+        self._insert(Table.ERROR_LOG, inserts)

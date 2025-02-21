@@ -176,9 +176,7 @@ venv/
 .venv/
 
 # Secrets
-.env
-.*
-!/.*/
+*.env
 
 # docker
 !.dockerignore

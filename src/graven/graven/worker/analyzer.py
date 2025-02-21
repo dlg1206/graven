@@ -10,16 +10,16 @@ import concurrent
 import json
 import os
 import queue
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import Queue
 from threading import Event, Thread
 from typing import Tuple, List
 
-from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
-from grype.grype import GrypeScanFailure, Grype
-from log.logger import logger
+from common.logger import logger
+
+from cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
+from grype import GrypeScanFailure, Grype
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
@@ -96,7 +96,8 @@ class AnalyzerWorker:
                 logger.info(
                     f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
             # add updates to queue to add later
-            self._database_upload_queue.put((analysis_task.get_url(), analysis_task.get_publish_date(), cve_ids, datetime.now(timezone.utc)))
+            self._database_upload_queue.put(
+                (analysis_task.get_url(), analysis_task.get_publish_date(), cve_ids, datetime.now(timezone.utc)))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)

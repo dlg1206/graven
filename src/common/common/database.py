@@ -14,19 +14,27 @@ from mysql.connector import pooling, IntegrityError
 from mysql.connector.cursor import MySQLCursor
 from mysql.connector.pooling import PooledMySQLConnection
 
-from log.logger import logger
+from .logger import logger
 
 
 class Table(Enum):
     """
-    Generic table to be expanded on by implementations
+    Tables that hold data
     """
+    CVE = "cve"
+    CWE = "cwe"
+    JAR = "jar"
+    DOMAIN = "domain"
+    ERROR_LOG = "error_log"
+    RUN_LOG = "run_log"
 
 
-class JoinTable(Table):
+class JoinTable(Enum):
     """
-    Generic join table to be expanded on by implementations
+    Tables that associate data
     """
+    CVE__CWE = "cve__cwe"
+    JAR__CVE = "jar__cve"
 
 
 class MySQLDatabase:

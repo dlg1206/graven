@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from queue import Queue
 from tempfile import TemporaryDirectory
 
-from analyze.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
-from crawl.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase
-from download.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
-from grype.grype import Grype, GRYPE_BIN
-from log.logger import Level, logger
+from common.logger import Level, logger
+
+from cve_breadcrumbs_database import BreadcrumbsDatabase
+from grype import Grype, GRYPE_BIN
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
+from worker.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
+from worker.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
+from worker.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
 
 
 def _execute(args: Namespace) -> None:
