@@ -15,9 +15,8 @@ from typing import Tuple
 
 import requests
 from common.logger import logger
-from requests import RequestException
-
 from cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from requests import RequestException
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
