@@ -6,6 +6,7 @@ Description: MySQL database interface for CVE-Breadcrumbs database
 @author Derek Garcia
 """
 import json
+import time
 from datetime import datetime
 from enum import Enum
 from typing import List, Dict, Any
@@ -95,11 +96,13 @@ class BreadcrumbsDatabase(MySQLDatabase):
             ('publish_date', published_date),
             ('last_scanned', last_scanned)
         ]
+        start_time = time.time()
         self._upsert(Table.JAR, ('jar_id', jar_id), inserts)
         # add cves
         for cve_id in cves:
             self._insert(Table.CVE, [('cve_id', cve_id), ('run_id', run_id)], on_success_msg=f"Add new cve '{cve_id}'")
             self._insert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id), ('run_id', run_id)])
+        logger.debug_msg(f"Processed {jar_id} and {len(cves)} CVEs in {time.time() - start_time:.2f}s")
 
     def log_run_start(self, grype_version: str, grype_db_source: str) -> int:
         """
