@@ -15,12 +15,12 @@ from typing import Tuple, List
 
 import requests
 from common.logger import logger
-from cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from requests import RequestException
+
+from cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer
 
-DEFAULT_MAX_RETRIES = 3
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 # non-jars that can be skipped
@@ -32,7 +32,6 @@ class CrawlerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
                  update: bool,
                  download_queue: Queue,
-                 max_retries: int,
                  max_concurrent_requests: int):
         """
         Create a new crawler worker that asynchronously and recursively parses the maven central file tree
@@ -48,7 +47,6 @@ class CrawlerWorker:
         self._crawl_queue = LifoQueue()
         self._download_queue = download_queue
         self._crawler_done_flag = Event()
-        self._max_retries = max_retries
         self._max_concurrent_requests = max_concurrent_requests
         self._heartbeat = Heartbeat("Crawler")
         self._timer = Timer()
@@ -136,14 +134,12 @@ class CrawlerWorker:
         root_url = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
         self._crawl_queue.put(root_url)
         logger.info(f"Starting crawler at '{root_url}'")
-        # crawl until no urls left
         self._timer.start()
-        cur_retries = 0
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
-            while cur_retries <= self._max_retries:
+            # crawl until no urls left
+            while True:
                 try:
-                    # Wait if queue is empty
                     url = self._crawl_queue.get_nowait()
                     # Skip if seen the url and not updating
                     if not self._update and self._database.has_seen_domain_url(url):
@@ -152,36 +148,29 @@ class CrawlerWorker:
                         continue
                     tasks.append(exe.submit(self._process_url, url))
                     self._heartbeat.beat(self._crawl_queue.qsize())
-                    cur_retries = 0
                 except queue.Empty:
-                    cur_retries += 1
+                    # wait for task to finish to be absolutely sure no urls left
+                    logger.warn(f"Queue is empty, ensuring tasks are done. . .")
+                    concurrent.futures.wait(tasks)
+                    # if there were urls left, retry
+                    if not self._crawl_queue.empty():
+                        logger.info(f"Found new urls to crawl, restarting")
+                        continue
+                    # report that this domain was searched
+                    self._database.save_domain_url_as_seen(self._run_id, root_url, datetime.now(timezone.utc))
+                    # restart with seed url if any left
+                    if seed_urls:
+                        new_root = seed_urls.pop(0)
+                        new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
+                        logger.info(f"Crawler exhausted '{root_url}'. Restarting with '{new_root}'")
+                        root_url = new_root
+                        self._crawl_queue.put(root_url)
+                        continue
+                    # else exit
+                    break
 
-                    if cur_retries > self._max_retries:
-                        # wait for task to finish to be absolutely sure no urls left
-                        logger.warn(f"Exceeded retries, ensuring tasks are done. . .")
-                        concurrent.futures.wait(tasks)
-                        # if there were urls left, retry
-                        if not self._crawl_queue.empty():
-                            logger.info(f"Found new urls to crawl, restarting")
-                            cur_retries = 0
-                            continue
-                        # report that this domain was searched
-                        self._database.save_domain_url_as_seen(self._run_id, root_url, datetime.now(timezone.utc))
-                        # restart with seed url if any left
-                        if seed_urls:
-                            new_root = seed_urls.pop(0)
-                            new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
-                            logger.info(f"Crawler exhausted '{root_url}'. Restarting with '{new_root}'")
-                            root_url = new_root
-                            self._crawl_queue.put(root_url)
-                            cur_retries = 0
-                            continue
-                        # else exit
-                        break
-                    logger.warn(f"No urls left in crawl queue, retrying ({cur_retries}/{self._max_retries}). . .")
-        logger.warn(f"Exceeded retries, waiting for remaining tasks to finish. . .")
-        for task in tasks:
-            task.result()
+        logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
+        concurrent.futures.wait(tasks)
         # done
         self._crawler_done_flag.set()  # signal no more urls
         self._timer.stop()

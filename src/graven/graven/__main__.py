@@ -16,7 +16,7 @@ from cve_breadcrumbs_database import BreadcrumbsDatabase
 from grype import Grype, GRYPE_BIN
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 from worker.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
-from worker.crawler import CrawlerWorker, DEFAULT_MAX_RETRIES
+from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
 
 
@@ -48,7 +48,6 @@ def _execute(args: Namespace) -> None:
     crawler = CrawlerWorker(database,
                             args.update,
                             download_queue,
-                            args.crawler_retries,
                             args.crawler_requests)
     downloader = DownloaderWorker(database,
                                   download_queue,
@@ -116,13 +115,6 @@ def _create_parser() -> ArgumentParser:
                         help="Download jar and scan even if already in the database")
 
     crawler_group = parser.add_argument_group("Crawler Options")
-    crawler_group.add_argument("--crawler-retries",
-                               metavar="<number of retries>",
-                               type=int,
-                               help=f"Max number of times to attempt to pop from the crawl queue before quitting (Default: {DEFAULT_MAX_RETRIES})",
-                               default=DEFAULT_MAX_RETRIES
-                               )
-
     crawler_group.add_argument("--crawler-requests",
                                metavar="<number of requests>",
                                type=int,

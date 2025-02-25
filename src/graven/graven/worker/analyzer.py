@@ -17,6 +17,7 @@ from threading import Event, Thread
 from typing import Tuple, List
 
 from common.logger import logger
+
 from cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from grype import GrypeScanFailure, Grype
 from shared.analysis_task import AnalysisTask

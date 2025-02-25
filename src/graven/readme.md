@@ -54,13 +54,12 @@ python3 graven -h
 
 usage: graven [-h] [-l <log level>] [-s] [--root-url <starting url>]
               [--seed-urls-csv <path to csv>] [-u]
-              [--crawler-retries <number of retries>]
               [--crawler-requests <number of requests>]
               [--downloader-requests <number of requests>]
               [--jar-limit <number of jars>]
               [--analyzer-threads <number of the threads>]
               [--grype-path <absolute path to grype binary>]
-              [--grype-db-source <url of grype database to use>]
+              [--grype-db-source <url of grype database to use>]]
 
 Recursive and optimized crawler for scraping the Maven Central Repository
 
@@ -78,9 +77,6 @@ options:
   -u, --update          Download jar and scan even if already in the database
 
 Crawler Options:
-  --crawler-retries <number of retries>
-                        Max number of times to attempt to pop from the crawl
-                        queue before quitting (Default: 3)
   --crawler-requests <number of requests>
                         Max number of requests crawler can make at once
                         (Default: number of cores)
