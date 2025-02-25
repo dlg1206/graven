@@ -10,7 +10,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import LifoQueue, Queue
-from threading import Event, Thread
+from threading import Event
 from typing import Tuple, List
 
 import requests
@@ -39,7 +39,6 @@ class CrawlerWorker:
         :param database: The database to store any error messages in
         :param update: Add jar url to download queue even if already in the database
         :param download_queue: The shared queue to place jar urls once found
-        :param max_retries: Max number of retries to get a url from the crawl queue before exiting
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._database = database
@@ -129,12 +128,6 @@ class CrawlerWorker:
        :param root_url: Root url to start the crawler at
        :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
        """
-        # init crawler
-        logger.info(f"Initializing crawler. . .")
-        root_url = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
-        self._crawl_queue.put(root_url)
-        logger.info(f"Starting crawler at '{root_url}'")
-        self._timer.start()
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
             # crawl until no urls left
@@ -171,28 +164,28 @@ class CrawlerWorker:
 
         logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
         concurrent.futures.wait(tasks)
-        # done
-        self._crawler_done_flag.set()  # signal no more urls
-        self._timer.stop()
-        self.print_statistics_message()
 
-    def start(self, run_id: int, root_url: str, seed_urls: List[str] = None) -> Thread:
+    def start(self, run_id: int, root_url: str, seed_urls: List[str] = None) -> None:
         """
         Spawn and start the crawler worker thread
 
         :param run_id: ID of run
         :param root_url: Root url to start the crawler at
         :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
-        :return: Crawler thread
         """
-        if seed_urls:
-            args = (root_url, seed_urls)
-        else:
-            args = (root_url,)
         self._run_id = run_id
-        thread = Thread(target=self._crawl, args=args)
-        thread.start()
-        return thread
+        # init crawler
+        logger.info(f"Initializing crawler. . .")
+        root_url = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
+        self._crawl_queue.put(root_url)
+        logger.info(f"Starting crawler at '{root_url}'")
+        self._timer.start()
+        # crawl
+        self._crawl(root_url, seed_urls)
+        # done
+        self._crawler_done_flag.set()  # signal no more urls
+        self._timer.stop()
+        self.print_statistics_message()
 
     def get_download_queue(self) -> Queue[Tuple[str, str]]:
         """

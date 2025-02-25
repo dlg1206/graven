@@ -10,8 +10,8 @@ ARG GRYPE_VERSION=v0.87.0
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin $GRYPE_VERSION
 
 FROM python:3.12.9-alpine3.21 AS graven
-LABEL maintainer="Derek Garcia <dgarcia2@hawaii.edu"
-LABEL version=1.1.0
+LABEL maintainer="Derek Garcia <dgarcia2@hawaii.edu>"
+LABEL version=1.1.1
 LABEL name=graven
 ENV PATH=$PATH:/home/graven/.local/bin
 

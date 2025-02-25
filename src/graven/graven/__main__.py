@@ -4,8 +4,10 @@ Description: Main entrypoint for crawling operations
 
 @author Derek Garcia
 """
+import concurrent
 import csv
 from argparse import ArgumentParser, Namespace
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -39,12 +41,13 @@ def _execute(args: Namespace) -> None:
         except Exception as e:
             logger.fatal(e)
 
-    # make workers
+    # todo - can exceed ram in container
     download_queue = Queue()
     analyze_queue = Queue()
 
     grype = Grype(bin_path=args.grype_path, db_source_url=args.grype_db_source) if args.grype_path else Grype(
         db_source_url=args.grype_db_source)
+    # make workers
     crawler = CrawlerWorker(database,
                             args.update,
                             download_queue,
@@ -66,13 +69,13 @@ def _execute(args: Namespace) -> None:
     with TemporaryDirectory() as tmp_dir:
         timer.start()
         run_id = database.log_run_start(grype.get_version(), grype.get_db_source())
-        threads = [
-            crawler.start(run_id, args.root_url if args.root_url else seed_urls.pop(), seed_urls),
-            downloader.start(run_id, tmp_dir),
-            analyzer.start(run_id)
-        ]
-        for t in threads:
-            t.join()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(crawler.start, run_id, args.root_url if args.root_url else seed_urls.pop(), seed_urls),
+                executor.submit(downloader.start, run_id, tmp_dir),
+                executor.submit(analyzer.start, run_id)
+            ]
+            concurrent.futures.wait(futures)
 
     # print task durations
     database.log_run_end(run_id, datetime.now(timezone.utc))

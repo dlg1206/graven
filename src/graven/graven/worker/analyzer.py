@@ -25,7 +25,6 @@ from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
 
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
-ANALYZE_QUEUE_TIMEOUT = 0
 
 
 class AnalyzerWorker:
@@ -115,13 +114,6 @@ class AnalyzerWorker:
         Main analyze method. Will continuously spawn threads to scan jars until
         the analysis queue is empty and retries exceeded
         """
-        logger.info(f"Initializing analyzer . .")
-        # create dedicated uploader
-        terminate = Event()
-        upload_worker = Thread(target=self._save_grype_results_worker, args=(terminate,))
-        upload_worker.start()
-        # start the analyzer
-        logger.info(f"Starting analyzer using {self._max_threads} threads")
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             first_time_wait_for_tasks("Analyzer", self._analyze_queue,
@@ -150,15 +142,8 @@ class AnalyzerWorker:
 
                     self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
 
-        logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
+        logger.info(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(tasks)
-        logger.warn(f"All scans finished, waiting for all results to be saved. . .")
-        terminate.set()
-        upload_worker.join()
-        logger.warn(f"All data saved, exiting. . .")
-        # done
-        self._timer.stop()
-        self.print_statistics_message()
 
     def print_statistics_message(self) -> None:
         """
@@ -168,14 +153,25 @@ class AnalyzerWorker:
         logger.info(
             f"Analyzer has scanned {self._jars_scanned} jars ({self._timer.get_count_per_second(self._jars_scanned):.01f} jars / s)")
 
-    def start(self, run_id: int) -> Thread:
+    def start(self, run_id: int) -> None:
         """
         Spawn and start the analyzer worker thread
 
         :param run_id: ID of run
-        :return: Analyzer thread
         """
         self._run_id = run_id
-        thread = Thread(target=self._analyze)
-        thread.start()
-        return thread
+        logger.info(f"Initializing analyzer . .")
+        # create dedicated uploader
+        terminate = Event()
+        upload_worker = Thread(target=self._save_grype_results_worker, args=(terminate,))
+        upload_worker.start()
+        # start the analyzer
+        logger.info(f"Starting analyzer using {self._max_threads} threads")
+        self._analyze()
+        # done
+        terminate.set()
+        self._timer.stop()
+        self.print_statistics_message()
+        logger.info(f"All scans finished, waiting for all results to be saved. . .")
+        upload_worker.join()
+        logger.info(f"All data saved, exiting. . .")

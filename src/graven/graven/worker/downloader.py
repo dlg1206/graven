@@ -10,7 +10,7 @@ import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from threading import Event, Semaphore, Thread
+from threading import Event, Semaphore
 from typing import Tuple
 
 import requests
@@ -106,7 +106,6 @@ class DownloaderWorker:
 
         :param download_dir_path: Path to directory to download jars to
         """
-        logger.info(f"Initializing downloader. . .")
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
             first_time_wait_for_tasks("Downloader", self._download_queue,
@@ -136,11 +135,8 @@ class DownloaderWorker:
 
         logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
         concurrent.futures.wait(tasks)
-        logger.warn(f"All downloads finished, exiting. . .")
+        logger.info(f"All downloads finished, exiting. . .")
         self._downloader_done_flag.set()  # signal no more jars
-        # done
-        self._timer.stop()
-        self.print_statistics_message()
 
     def print_statistics_message(self) -> None:
         """
@@ -150,18 +146,19 @@ class DownloaderWorker:
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
 
-    def start(self, run_id: int, download_dir_path: str) -> Thread:
+    def start(self, run_id: int, download_dir_path: str) -> None:
         """
         Spawn and start the downloader worker thread
 
         :param run_id: ID of run
         :param download_dir_path: Path to directory to download jars to
-        :return: Downloader thread
         """
+        logger.info(f"Initializing downloader. . .")
         self._run_id = run_id
-        thread = Thread(target=self._download, args=(download_dir_path,))
-        thread.start()
-        return thread
+        self._download(download_dir_path)
+        # done
+        self._timer.stop()
+        self.print_statistics_message()
 
     def get_analyze_queue(self) -> Queue[AnalysisTask]:
         """
