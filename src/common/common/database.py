@@ -16,8 +16,12 @@ from mysql.connector.pooling import PooledMySQLConnection
 
 from .logger import logger
 
+class TableEnum(Enum):
+    """
+    Shared parent table enumb
+    """
 
-class Table(Enum):
+class Table(TableEnum):
     """
     Tables that hold data
     """
@@ -29,7 +33,7 @@ class Table(Enum):
     RUN_LOG = "run_log"
 
 
-class JoinTable(Enum):
+class JoinTable(TableEnum):
     """
     Tables that associate data
     """
@@ -92,7 +96,7 @@ class MySQLDatabase:
             if cur:
                 cur.close()
 
-    def _insert(self, table: Table, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> int | None:
+    def _insert(self, table: TableEnum, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
@@ -128,7 +132,7 @@ class MySQLDatabase:
                 # return auto incremented id if used
                 return cur.lastrowid
 
-    def _select(self, table: Table, columns: List[str] = None,
+    def _select(self, table: TableEnum, columns: List[str] = None,
                 where_equals: List[Tuple[str, Any]] = None) \
             -> List[Tuple[Any]]:
         """
@@ -152,7 +156,7 @@ class MySQLDatabase:
                 cur.execute(f"{sql};", [] if not where_equals else [clause[1] for clause in where_equals])
                 return cur.fetchall()
 
-    def _update(self, table: Table, updates: List[Tuple[str, Any]],
+    def _update(self, table: TableEnum, updates: List[Tuple[str, Any]],
                 where_equals: List[Tuple[str, Any]] = None, on_success: str = None, amend: bool = False) -> bool:
         """
         Generic update from the database
@@ -194,7 +198,7 @@ class MySQLDatabase:
                     logger.debug_msg(on_success)
                 return cur.rowcount > 0  # rows changed
 
-    def _upsert(self, table: Table, primary_key: Tuple[str, Any], updates: List[Tuple[str, Any]],
+    def _upsert(self, table: TableEnum, primary_key: Tuple[str, Any], updates: List[Tuple[str, Any]],
                 print_on_success: bool = True) -> None:
         """
         Generic upsert to the database
