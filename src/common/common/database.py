@@ -198,7 +198,7 @@ class MySQLDatabase:
                     logger.debug_msg(on_success)
                 return cur.rowcount > 0  # rows changed
 
-    def _upsert(self, table: TableEnum, primary_key: Tuple[str, Any], updates: List[Tuple[str, Any]],
+    def _upsert(self, table: TableEnum, primary_key: List[Tuple[str, Any]], updates: List[Tuple[str, Any]],
                 print_on_success: bool = True) -> None:
         """
         Generic upsert to the database
@@ -209,11 +209,14 @@ class MySQLDatabase:
         :param print_on_success: Print debug message on success (default: True)
         """
         # attempt to update
+        msg = None
+        if print_on_success:
+            msg = ", ".join([f"{pk[0]} '{pk[1]}'" for pk in primary_key])
         if not self._update(table, updates,
-                            where_equals=[primary_key],
-                            on_success=f"Updated {primary_key[0]} '{primary_key[1]}'" if print_on_success else None,
+                            where_equals=primary_key,
+                            on_success=f"Updated {msg}" if print_on_success else None,
                             amend=False):
             # if fail, insert
-            updates.append(primary_key)
+            updates += primary_key
             self._insert(table, updates,
-                         on_success_msg=f"Inserted {primary_key[0]} '{primary_key[1]}'" if print_on_success else None)
+                         on_success_msg=f"Inserted {msg}" if print_on_success else None)
