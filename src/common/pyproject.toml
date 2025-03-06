@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "common"
-version = "0.1.0"
+version = "0.1.1"
 description = "Collection of shared modules used throughout the breadcrumbs project"
 authors = [{ name = "Derek Garcia", email = "dgarcia2@hawaii.edu" }]
 dependencies = [

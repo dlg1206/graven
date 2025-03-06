@@ -16,6 +16,8 @@ from mysql.connector.pooling import PooledMySQLConnection
 
 from .logger import logger
 
+DEFAULT_POOL_SIZE = 32
+
 class TableEnum(Enum):
     """
     Shared parent table enumb
@@ -43,10 +45,10 @@ class JoinTable(TableEnum):
 
 class MySQLDatabase:
     """
-    Generic interface for accessing a SQLite Database
+    Generic interface for accessing a SQL Database
     """
 
-    def __init__(self, pool_size: int):
+    def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
         Create MySQL interface and connection pool to use. Uses environment variables for credentials
         """
@@ -56,6 +58,7 @@ class MySQLDatabase:
             "password": os.getenv("MYSQL_PASSWORD"),
             "host": os.getenv("MYSQL_HOST"),
             "database": os.getenv("MYSQL_DATABASE"),
+            "port": int(os.getenv("EXTERNAL_PORT"))
         }
 
         self._connection_pool = pooling.MySQLConnectionPool(pool_size=pool_size, **db_config)
@@ -145,7 +148,7 @@ class MySQLDatabase:
         with self._open_connection() as conn:
             with self._get_cursor(conn) as cur:
                 # build SQL
-                columns_names = f"({', '.join(columns)})" if columns else '*'  # ( c1, ..., cN )
+                columns_names = f"{', '.join(columns)}" if columns else '*'  #  c1, ..., cN
                 sql = f"SELECT {columns_names} FROM {table.value}"
                 # add where clauses if given
                 if where_equals:
