@@ -19,7 +19,7 @@ from typing import Tuple, List
 from common.logger import logger
 
 from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
-from grype import GrypeScanFailure, Grype
+from anchore.grype import GrypeScanFailure, Grype
 from shared.analysis_task import AnalysisTask
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
