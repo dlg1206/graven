@@ -3,10 +3,11 @@ import json
 import os
 import queue
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from queue import Queue
-from threading import Event, Thread
-from typing import Tuple, List
+from threading import Event
+from typing import List
 
 from common.logger import logger
 
@@ -27,11 +28,21 @@ Description: Use grype to scan jars to find CVEs
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
 
 
+@dataclass
+class AnalysisResult:
+    url: str
+    publish_date: datetime
+    cve_ids: List[str]
+    last_scanned: datetime
+
+
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
                  grype: Grype,
                  analyze_queue: Queue[AnalysisTask],
-                 downloader_done_event: Event,
+                 scribe_queue: queue.LifoQueue,
+                 downloader_done_flag: Event,
+                 analyzer_done_flag: Event,
                  max_threads: int):
         """
         Create a new analyzer worker that spawns threads to process jars using grype
@@ -39,38 +50,23 @@ class AnalyzerWorker:
         :param database: The database to save grype results and store any error messages in
         :param grype: Grype interface to use for scanning
         :param analyze_queue: Queue of tasks to analyze
-        :param downloader_done_event: Flag to indicate to rest of pipeline that the downloader is finished
+        :param scribe_queue: Queue of results to eventually write to the database
+        :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
+        :param analyzer_done_flag: Flag to indicate to rest of pipeline that the analyzer is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
         self._database = database
         self._grype = grype
         self._analyze_queue = analyze_queue
-        self._downloader_done_event = downloader_done_event
+        self._scribe_queue = scribe_queue
+        self._downloader_done_flag = downloader_done_flag
+        self._analyzer_done_flag = analyzer_done_flag
         self._max_threads = max_threads
 
         self._heartbeat = Heartbeat("Analysis")
-        self._database_upload_queue: Queue[Tuple[str, datetime, List[str], datetime]] = Queue()
         self._timer = Timer()
         self._jars_scanned = 0
         self._run_id = None
-
-    def _save_grype_results_worker(self, terminate: Event) -> None:
-        """
-        Dedicated worker to constantly upload results to the database
-
-        :param terminate: Event to signal to finish what is in the queue
-        :return:
-        """
-        while not (terminate.is_set() and self._database_upload_queue.empty()):
-            try:
-                r = self._database_upload_queue.get_nowait()
-                self._database.upsert_jar_and_grype_results(self._run_id, r[0], r[1], r[2], r[3])
-            except queue.Empty:
-                """
-                To prevent deadlocks, the forced timeout with throw this error 
-                for another iteration of the loop to check conditions
-                """
-                continue
 
     def _grype_scan(self, analysis_task: AnalysisTask) -> None:
         """
@@ -95,8 +91,8 @@ class AnalyzerWorker:
                 logger.info(
                     f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.filename}")
             # add updates to queue to add later
-            self._database_upload_queue.put(
-                (analysis_task.url, analysis_task.publish_date, cve_ids, datetime.now(timezone.utc)))
+            self._scribe_queue.put(
+                AnalysisResult(analysis_task.url, analysis_task.publish_date, cve_ids, datetime.now(timezone.utc)))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
@@ -117,10 +113,10 @@ class AnalyzerWorker:
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             first_time_wait_for_tasks("Analyzer", self._analyze_queue,
-                                      self._downloader_done_event)  # block until items to process
+                                      self._downloader_done_flag)  # block until items to process
             self._timer.start()
             # run while the downloader is still running or still tasks to process
-            while not (self._downloader_done_event.is_set() and self._analyze_queue.empty()):
+            while not (self._downloader_done_flag.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
                     analysis_task = self._analyze_queue.get_nowait()
@@ -144,6 +140,7 @@ class AnalyzerWorker:
 
         logger.info(f"No more jars to scan, waiting for scans to finish. . .")
         concurrent.futures.wait(tasks)
+        self._analyzer_done_flag.set()  # signal no tasks
 
     def print_statistics_message(self) -> None:
         """
@@ -161,17 +158,13 @@ class AnalyzerWorker:
         """
         self._run_id = run_id
         logger.info(f"Initializing analyzer . .")
-        # create dedicated uploader
-        terminate = Event()
-        upload_worker = Thread(target=self._save_grype_results_worker, args=(terminate,))
-        upload_worker.start()
         # start the analyzer
         logger.info(f"Starting analyzer using {self._max_threads} threads")
         self._analyze()
         # done
-        terminate.set()
         self._timer.stop()
         self.print_statistics_message()
-        logger.info(f"All scans finished, waiting for all results to be saved. . .")
-        upload_worker.join()
-        logger.info(f"All data saved, exiting. . .")
+
+    @property
+    def grype(self) -> Grype:
+        return self._grype

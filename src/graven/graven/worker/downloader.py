@@ -24,7 +24,7 @@ Description: Download jars into temp directories to be scanned
 """
 
 DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
-DOWNLOAD_QUEUE_TIMEOUT = 0
+DOWNLOAD_QUEUE_TIMEOUT = 1
 
 
 class DownloaderWorker:

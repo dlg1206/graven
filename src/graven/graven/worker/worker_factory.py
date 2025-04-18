@@ -1,11 +1,19 @@
-from queue import Queue
+import concurrent
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from queue import Queue, LifoQueue
+from tempfile import TemporaryDirectory
 from threading import Event
+from typing import List
 
 from anchore.grype import Grype
+from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
+from shared.utils import Timer
 from worker.analyzer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
+from worker.scribe import ScribeWorker
 
 """
 File: worker_factory.py
@@ -24,6 +32,9 @@ class WorkerFactory:
         # attempt to log in into the database
         self._database = BreadcrumbsDatabase()
 
+        # shared scribe objects
+        self._scribe_queue = LifoQueue()
+
         # shared crawler objects
         self._crawler_done_flag = Event()
 
@@ -33,6 +44,7 @@ class WorkerFactory:
 
         # shared analyzer objects
         self._analyze_queue = Queue()
+        self._analyzer_done_flag = Event()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update: bool) -> CrawlerWorker:
         """
@@ -58,12 +70,45 @@ class WorkerFactory:
                                 self._crawler_done_flag, self._downloader_done_flag,
                                 max_concurrent_requests, download_limit)
 
-    def create_analyzer_worker(self, grype: Grype, max_threads: int) -> AnalyzerWorker:
+    def create_analyzer_worker(self, max_threads: int, grype_path: str = None,
+                               grype_db_source: str = None) -> AnalyzerWorker:
         """
         Create a new analyzer worker
 
-        :param grype: Grype interface to use for scanning
-        :param downloader: DownloaderWorker being used
         :param max_threads: Max number of concurrent requests allowed to be made at once
+        :param grype_path: Path to grype bin (Default: assume on path or in pwd)
+        :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
         """
-        return AnalyzerWorker(self._database, grype, self._analyze_queue, self._downloader_done_flag, max_threads)
+        # init grype
+        if grype_path:
+            grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
+        else:
+            grype = Grype(grype_db_source)
+        return AnalyzerWorker(self._database, grype, self._analyze_queue, self._scribe_queue,
+                              self._downloader_done_flag, self._analyzer_done_flag, max_threads)
+
+    def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, analyzer: AnalyzerWorker,
+                    root_url: str = None, seed_urls: List[str] = None) -> None:
+        logger.info("Launching Graven worker threads...")
+        scribe = ScribeWorker(self._database, self._scribe_queue, self._analyzer_done_flag)
+        # spawn tasks
+        timer = Timer()
+        with TemporaryDirectory() as tmp_dir:
+            timer.start()
+            run_id = self._database.log_run_start(analyzer.grype.get_version(), analyzer.grype.db_source)
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [
+                    executor.submit(scribe.start, run_id),
+                    executor.submit(crawler.start, run_id, root_url if root_url else seed_urls.pop(), seed_urls),
+                    executor.submit(downloader.start, run_id, tmp_dir),
+                    executor.submit(analyzer.start, run_id)
+                ]
+                concurrent.futures.wait(futures)
+
+        # print task durations
+        self._database.log_run_end(run_id, datetime.now(timezone.utc))
+        timer.stop()
+        logger.info(f"Total Execution Time: {timer.format_time()}")
+        crawler.print_statistics_message()
+        downloader.print_statistics_message()
+        analyzer.print_statistics_message()

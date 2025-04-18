@@ -1,15 +1,10 @@
-import concurrent
 import csv
 from argparse import ArgumentParser, Namespace
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from tempfile import TemporaryDirectory
 
 from common.logger import Level, logger
 
-from anchore.grype import Grype, GRYPE_BIN
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
-from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
+from anchore.grype import GRYPE_BIN
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 from worker.analyzer import DEFAULT_MAX_ANALYZER_THREADS
 from worker.downloader import DEFAULT_MAX_JAR_LIMIT
 from worker.worker_factory import WorkerFactory
@@ -29,7 +24,6 @@ def _execute(args: Namespace) -> None:
     :param args: args to get command details from
     """
     # attempt to log in into the database
-    database = BreadcrumbsDatabase()
     worker_factory = WorkerFactory()
 
     # parse seed urls if any
@@ -39,36 +33,13 @@ def _execute(args: Namespace) -> None:
             csv_reader = csv.reader(file)
             seed_urls = [row[0] for row in csv_reader]
 
-    if args.grype_path:
-        grype = Grype(bin_path=args.grype_path, db_source_url=args.grype_db_source)
-    else:
-        grype = Grype(args.grype_db_source)
-
     # make workers
-    crawler = worker_factory.create_crawler_worker(args.update, args.max_concurrent_crawl_requests)
+    crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests, args.update)
     downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
-    analyzer = worker_factory.create_analyzer_worker(grype, args.max_threads)
+    analyzer = worker_factory.create_analyzer_worker(args.max_threads, args.grype_path, args.grype_db_source)
 
-    # spawn tasks
-    timer = Timer()
-    with TemporaryDirectory() as tmp_dir:
-        timer.start()
-        run_id = database.log_run_start(grype.get_version(), grype.db_source)
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(crawler.start, run_id, args.root_url if args.root_url else seed_urls.pop(), seed_urls),
-                executor.submit(downloader.start, run_id, tmp_dir),
-                executor.submit(analyzer.start, run_id)
-            ]
-            concurrent.futures.wait(futures)
-
-    # print task durations
-    database.log_run_end(run_id, datetime.now(timezone.utc))
-    timer.stop()
-    logger.info(f"Total Execution Time: {timer.format_time()}")
-    crawler.print_statistics_message()
-    downloader.print_statistics_message()
-    analyzer.print_statistics_message()
+    # start job
+    worker_factory.run_workers(crawler, downloader, analyzer, args.root_url, seed_urls)
 
 
 def _create_parser() -> ArgumentParser:
