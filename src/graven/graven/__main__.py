@@ -3,7 +3,6 @@ import csv
 from argparse import ArgumentParser, Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from queue import Queue
 from tempfile import TemporaryDirectory
 
 from common.logger import Level, logger
@@ -11,9 +10,9 @@ from common.logger import Level, logger
 from anchore.grype import Grype, GRYPE_BIN
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
-from worker.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
-from worker.crawler import CrawlerWorker
-from worker.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
+from worker.analyzer import DEFAULT_MAX_ANALYZER_THREADS
+from worker.downloader import DEFAULT_MAX_JAR_LIMIT
+from worker.worker_factory import WorkerFactory
 
 """
 File: __main__.py
@@ -31,39 +30,24 @@ def _execute(args: Namespace) -> None:
     """
     # attempt to log in into the database
     database = BreadcrumbsDatabase()
+    worker_factory = WorkerFactory()
 
     # parse seed urls if any
     seed_urls = None
     if args.seed_urls_csv:
-        try:
-            with open(args.seed_urls_csv) as file:
-                csv_reader = csv.reader(file)
-                seed_urls = [row[0] for row in csv_reader]
-        except Exception as e:
-            logger.fatal(e)
+        with open(args.seed_urls_csv) as file:
+            csv_reader = csv.reader(file)
+            seed_urls = [row[0] for row in csv_reader]
 
-    # todo - can exceed ram in container
-    download_queue = Queue()
-    analyze_queue = Queue()
+    if args.grype_path:
+        grype = Grype(bin_path=args.grype_path, db_source_url=args.grype_db_source)
+    else:
+        grype = Grype(args.grype_db_source)
 
-    grype = Grype(bin_path=args.grype_path, db_source_url=args.grype_db_source) if args.grype_path else Grype(
-        db_source_url=args.grype_db_source)
     # make workers
-    crawler = CrawlerWorker(database,
-                            args.update,
-                            download_queue,
-                            args.crawler_requests)
-    downloader = DownloaderWorker(database,
-                                  download_queue,
-                                  analyze_queue,
-                                  crawler.crawler_done_flag,
-                                  args.downloader_requests,
-                                  args.jar_limit)
-    analyzer = AnalyzerWorker(database,
-                              grype,
-                              analyze_queue,
-                              downloader.downloader_done_flag,
-                              args.analyzer_threads)
+    crawler = worker_factory.create_crawler_worker(args.update, args.max_concurrent_crawl_requests)
+    downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
+    analyzer = worker_factory.create_analyzer_worker(grype, args.max_threads)
 
     # spawn tasks
     timer = Timer()
@@ -119,27 +103,27 @@ def _create_parser() -> ArgumentParser:
                         help="Download jar and scan even if already in the database")
 
     crawler_group = parser.add_argument_group("Crawler Options")
-    crawler_group.add_argument("--crawler-requests",
+    crawler_group.add_argument("--max-concurrent-crawl-requests",
                                metavar="<number of requests>",
                                type=int,
                                help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
                                default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
     downloader_group = parser.add_argument_group("Downloader Options")
-    downloader_group.add_argument("--downloader-requests",
+    downloader_group.add_argument("--max-concurrent-download-requests",
                                   metavar="<number of requests>",
                                   type=int,
                                   help=f"Max number of downloads downloader can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
                                   default=DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-    downloader_group.add_argument("--jar-limit",
+    downloader_group.add_argument("--download-limit",
                                   metavar="<number of jars>",
                                   type=int,
                                   help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
                                   default=DEFAULT_MAX_JAR_LIMIT)
 
     analyzer_group = parser.add_argument_group("Analyzer Options")
-    analyzer_group.add_argument("--analyzer-threads",
+    analyzer_group.add_argument("--max-threads",
                                 metavar="<number of the threads>",
                                 type=int,
                                 help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
@@ -174,8 +158,11 @@ def main() -> None:
     # at least 1 needs to be added
     if not (args.root_url or args.seed_urls_csv):
         logger.fatal("Please provide at least root_url or seed_url_csv")
-    # create command
-    _execute(args)
+
+    try:
+        _execute(args)
+    except Exception as e:
+        logger.fatal(e)
 
 
 if __name__ == "__main__":

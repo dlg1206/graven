@@ -31,22 +31,24 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependenci
 
 class CrawlerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 update: bool,
                  download_queue: Queue,
+                 crawler_done_flag: Event,
+                 update: bool,
                  max_concurrent_requests: int):
         """
-        Create a new crawler worker that asynchronously and recursively parses the maven central file tree
+        Create a new crawler worker that recursively parses the maven central file tree
 
         :param database: The database to store any error messages in
-        :param update: Add jar url to download queue even if already in the database
         :param download_queue: The shared queue to place jar urls once found
+        :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
+        :param update: Add jar url to download queue even if already in the database
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._database = database
         self._update = update
         self._crawl_queue = LifoQueue()
         self._download_queue = download_queue
-        self._crawler_done_flag = Event()
+        self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._heartbeat = Heartbeat("Crawler")
         self._timer = Timer()

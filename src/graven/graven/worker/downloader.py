@@ -32,16 +32,18 @@ class DownloaderWorker:
                  download_queue: Queue[Tuple[str, str]],
                  analyze_queue: Queue[AnalysisTask],
                  crawler_done_flag: Event,
+                 downloader_done_flag: Event,
                  max_concurrent_requests: int,
                  download_limit: int
                  ):
         """
-        Create a new downloader worker that asynchronously downloads jars from the maven central file tree
+        Create a new downloader worker that downloads jars from the maven central file tree
 
         :param database: The database to store any error messages in
         :param download_queue: Queue to pop urls of jars to download from
         :param analyze_queue: Queue of paths to jars to analyze to push to
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
+        :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :param download_limit: Max number of jars to be downloaded at one time
         """
@@ -49,7 +51,7 @@ class DownloaderWorker:
         self._download_queue = download_queue
         self._analyze_queue = analyze_queue
         self._crawler_done_flag = crawler_done_flag
-        self._downloader_done_flag = Event()
+        self._downloader_done_flag = downloader_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._download_limit = Semaphore(download_limit)
 
