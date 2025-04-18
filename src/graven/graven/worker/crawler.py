@@ -17,7 +17,7 @@ import requests
 from common.logger import logger
 from requests import RequestException
 
-from cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer
 

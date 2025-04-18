@@ -14,7 +14,7 @@ from tempfile import TemporaryDirectory
 
 from common.logger import Level, logger
 
-from cve_breadcrumbs_database import BreadcrumbsDatabase
+from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
 from grype import Grype, GRYPE_BIN
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 from worker.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
