@@ -1,20 +1,17 @@
 import concurrent
 import json
 import os
-import queue
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from queue import Queue
+from queue import Queue, LifoQueue, Empty
 from threading import Event
-from typing import List
 
 from common.logger import logger
 
 from anchore.grype import GrypeScanFailure, Grype
-from shared.analysis_task import AnalysisTask
 from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from shared.heartbeat import Heartbeat
+from shared.message import AnalysisMessage, ScribeMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -28,19 +25,11 @@ Description: Use grype to scan jars to find CVEs
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
 
 
-@dataclass
-class AnalysisResult:
-    url: str
-    publish_date: datetime
-    cve_ids: List[str]
-    last_scanned: datetime
-
-
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
                  grype: Grype,
-                 analyze_queue: Queue[AnalysisTask],
-                 scribe_queue: queue.LifoQueue,
+                 analyze_queue: Queue[AnalysisMessage],
+                 scribe_queue: LifoQueue[ScribeMessage],
                  downloader_done_flag: Event,
                  analyzer_done_flag: Event,
                  max_threads: int):
@@ -68,41 +57,41 @@ class AnalyzerWorker:
         self._jars_scanned = 0
         self._run_id = None
 
-    def _grype_scan(self, analysis_task: AnalysisTask) -> None:
+    def _grype_scan(self, analysis_msg: AnalysisMessage) -> None:
         """
         Use grype to scan a jar
 
-        :param analysis_task: Task with jar path and additional details
+        :param analysis_msg: Message with jar path and additional details
         """
 
         cve_ids = []
         # scan
         try:
-            return_code = self._grype.scan(analysis_task.get_file_path(), analysis_task.get_grype_file_path())
+            return_code = self._grype.scan(analysis_msg.get_file_path(), analysis_msg.get_grype_file_path())
             # return.code == 1, which means cves were found
             if return_code:
                 # save results
-                with open(analysis_task.get_grype_file_path(), "r") as file:
+                with open(analysis_msg.get_grype_file_path(), "r") as file:
                     grype_data = json.load(file)
-                analysis_task.cleanup()
+                analysis_msg.cleanup()
                 # get all cves
                 cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
                                 vuln["vulnerability"]["id"].startswith("CVE")})
                 logger.info(
-                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.filename}")
+                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_msg.filename}")
             # add updates to queue to add later
             self._scribe_queue.put(
-                AnalysisResult(analysis_task.url, analysis_task.publish_date, cve_ids, datetime.now(timezone.utc)))
+                ScribeMessage(analysis_msg.url, analysis_msg.publish_date, cve_ids, datetime.now(timezone.utc)))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.url, e, "grype failed to scan")
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_msg.url, e, "grype failed to scan")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.url, e,
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_msg.url, e,
                                      "error when scanning with grype")
         finally:
-            analysis_task.cleanup()
+            analysis_msg.cleanup()
             self._analyze_queue.task_done()
 
     def _analyze(self) -> None:
@@ -123,7 +112,7 @@ class AnalyzerWorker:
                     self._heartbeat.beat(self._analyze_queue.qsize())
                     # scan
                     tasks.append(exe.submit(self._grype_scan, analysis_task))
-                except queue.Empty:
+                except Empty:
                     """
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions

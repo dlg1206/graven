@@ -9,6 +9,7 @@ from typing import List
 from anchore.grype import Grype
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
+from shared.message import DownloadMessage, AnalysisMessage, ScribeMessage
 from shared.utils import Timer
 from worker.analyzer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
@@ -33,17 +34,17 @@ class WorkerFactory:
         self._database = BreadcrumbsDatabase()
 
         # shared scribe objects
-        self._scribe_queue = LifoQueue()
+        self._scribe_queue: LifoQueue[ScribeMessage] = LifoQueue()
 
         # shared crawler objects
         self._crawler_done_flag = Event()
 
         # shared downloader objects
-        self._download_queue = Queue()
+        self._download_queue: Queue[DownloadMessage] = Queue()
         self._downloader_done_flag = Event()
 
         # shared analyzer objects
-        self._analyze_queue = Queue()
+        self._analyze_queue: Queue[AnalysisMessage] = Queue()
         self._analyzer_done_flag = Event()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update: bool) -> CrawlerWorker:

@@ -13,6 +13,7 @@ from requests import RequestException
 
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
+from shared.message import DownloadMessage
 from shared.utils import Timer
 
 """
@@ -31,7 +32,7 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependenci
 
 class CrawlerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 download_queue: Queue,
+                 download_queue: Queue[DownloadMessage],
                  crawler_done_flag: Event,
                  update: bool,
                  max_concurrent_requests: int):
@@ -79,7 +80,9 @@ class CrawlerWorker:
                     logger.warn(f"Found jar url, but already seen. Skipping. . . | {download_url}")
                     continue
 
-                self._download_queue.put((download_url, match.group(3).strip()))  # save jar url and timestamp
+                # save jar url and timestamp
+                dm = DownloadMessage(download_url, datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
+                self._download_queue.put(dm)
                 logger.debug_msg(f"Found jar url | {download_url}")
 
     def _download_html(self, url: str) -> str:

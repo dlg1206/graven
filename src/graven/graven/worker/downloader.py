@@ -4,15 +4,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from threading import Event, Semaphore
-from typing import Tuple
 
 import requests
 from common.logger import logger
 from requests import RequestException
 
-from shared.analysis_task import AnalysisTask
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
+from shared.message import DownloadMessage, AnalysisMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -29,8 +28,8 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 
 class DownloaderWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 download_queue: Queue[Tuple[str, str]],
-                 analyze_queue: Queue[AnalysisTask],
+                 download_queue: Queue[DownloadMessage],
+                 analyze_queue: Queue[AnalysisMessage],
                  crawler_done_flag: Event,
                  downloader_done_flag: Event,
                  max_concurrent_requests: int,
@@ -60,46 +59,48 @@ class DownloaderWorker:
         self._downloaded_jars = 0
         self._run_id = None
 
-    def _download_jar(self, analysis_task: AnalysisTask) -> None:
+    def _download_jar(self, jar_url: str, download_path: str) -> None:
         """
         Download jar
 
-        :param analysis_task: Task with details about jar url and download location
+        :param jar_url: URL of jar to be downloaded
+        :param download_path: Path to download jar to
         """
         start_time = time.time()
-        with requests.get(analysis_task.url) as response:
+        with requests.get(jar_url) as response:
             response.raise_for_status()
-            with open(analysis_task.get_file_path(), "wb") as file:
+            with open(download_path, "wb") as file:
                 file.write(response.content)
-        logger.debug_msg(f"Downloaded {analysis_task.url} in {time.time() - start_time:.2f}s")
+        logger.debug_msg(f"Downloaded {jar_url} in {time.time() - start_time:.2f}s")
         self._downloaded_jars += 1
 
-    def _process_task(self, url: str, timestamp: str, download_dir_path: str) -> None:
+    def _process_task(self, download_message: DownloadMessage, download_dir_path: str) -> None:
         """
         Wrapper task for submitting to thread pool
         Downloads jar to file and updates the analyze queue
 
-        :param url: URL of jar to download
-        :param timestamp: Timestamp jar was uploaded
+        :param download_message: Message with download data
         :param download_dir_path: Path to directory to download jar to
         """
-        analysis_task = AnalysisTask(url, timestamp, self._download_limit, download_dir_path)
+        analysis_msg = AnalysisMessage(download_message.jar_url, download_message.jar_publish_date,
+                                       self._download_limit, download_dir_path)
         try:
-            self._download_jar(analysis_task)
-            self._analyze_queue.put(analysis_task)
+            self._download_jar(analysis_msg.url, analysis_msg.get_file_path())
+            self._analyze_queue.put(analysis_msg)
         except RequestException as e:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e,
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e,
                                          comment="Failed to download jar",
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e, "Failed to download jar")
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e,
+                                         "Failed to download jar")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, url, e, "Error in download")
-            analysis_task.cleanup()  # rm and release if anything goes wrong
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e, "Error in download")
+            analysis_msg.cleanup()  # rm and release if anything goes wrong
         finally:
             self._download_queue.task_done()
 
@@ -122,11 +123,11 @@ class DownloaderWorker:
                         logger.warn("Failed to acquire lock; retrying. . .")
                         continue
 
-                    url, timestamp = self._download_queue.get_nowait()
+                    download_msg = self._download_queue.get_nowait()
                     self._heartbeat.beat(self._download_queue.qsize())
 
                     # download jar
-                    tasks.append(exe.submit(self._process_task, url, timestamp, download_dir_path))
+                    tasks.append(exe.submit(self._process_task, download_msg, download_dir_path))
 
                 except queue.Empty:
                     """
@@ -164,7 +165,7 @@ class DownloaderWorker:
         self.print_statistics_message()
 
     @property
-    def analyze_queue(self) -> Queue[AnalysisTask]:
+    def analyze_queue(self) -> Queue[AnalysisMessage]:
         """
         :return: analyze queue
         """

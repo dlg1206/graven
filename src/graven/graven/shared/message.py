@@ -1,20 +1,28 @@
 import os
-import threading
+from dataclasses import dataclass
 from datetime import datetime
+from threading import Semaphore
+from typing import List
 
-from common.logger import logger
+from logger import logger
 
 """
-File: analysis_task.py
+File: message.py
 
-Description: Metadata for a jar file to be scanned
+Description: Collection of standardized messages for queues
 
 @author Derek Garcia
 """
 
 
-class AnalysisTask:
-    def __init__(self, url: str, publish_date: str, download_limit: threading.Semaphore, working_dir_path: str):
+@dataclass
+class DownloadMessage:
+    jar_url: str
+    jar_publish_date: datetime
+
+
+class AnalysisMessage:
+    def __init__(self, url: str, publish_date: datetime, download_limit: Semaphore, working_dir_path: str):
         """
         Task metadata object with details about the downloaded jar
 
@@ -24,7 +32,7 @@ class AnalysisTask:
         :param working_dir_path: Path to working directory to save jar to
         """
         self._url = url
-        self._publish_date = datetime.strptime(publish_date, "%Y-%m-%d %H:%M")
+        self._publish_date = publish_date
         self._download_limit = download_limit
         self._filename = self._url.split("/")[-1]
         self._working_dir_path = working_dir_path
@@ -83,3 +91,11 @@ class AnalysisTask:
         :return: The file path to the grype report
         """
         return f"{self.get_file_path()}.json"
+
+
+@dataclass
+class ScribeMessage:
+    url: str
+    publish_date: datetime
+    cve_ids: List[str]
+    last_scanned: datetime

@@ -4,6 +4,7 @@ from threading import Event
 
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
+from shared.message import ScribeMessage
 
 """
 File: scribe.py
@@ -17,7 +18,8 @@ WRITE_TIMEOUT = 1
 
 
 class ScribeWorker:
-    def __init__(self, database: BreadcrumbsDatabase, scribe_queue: LifoQueue, analyzer_done_flag: Event):
+    def __init__(self, database: BreadcrumbsDatabase, scribe_queue: LifoQueue[ScribeMessage],
+                 analyzer_done_flag: Event):
         """
         Create a new scribe worker that constantly saves data to the database
 
@@ -37,10 +39,10 @@ class ScribeWorker:
         """
         while not (self._analyzer_done_flag.is_set() and self._scribe_queue.empty()):
             try:
-                analysis_result = self._scribe_queue.get(timeout=WRITE_TIMEOUT)
-                self._database.upsert_jar_and_grype_results(self._run_id, analysis_result.url,
-                                                            analysis_result.publish_date, analysis_result.cve_ids,
-                                                            analysis_result.last_scanned)
+                scribe_msg = self._scribe_queue.get(timeout=WRITE_TIMEOUT)
+                self._database.upsert_jar_and_grype_results(self._run_id, scribe_msg.url,
+                                                            scribe_msg.publish_date, scribe_msg.cve_ids,
+                                                            scribe_msg.last_scanned)
                 self._scribe_queue.task_done()
             except queue.Empty:
                 """
