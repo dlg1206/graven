@@ -64,11 +64,11 @@ class DownloaderWorker:
         :param analysis_task: Task with details about jar url and download location
         """
         start_time = time.time()
-        with requests.get(analysis_task.get_url()) as response:
+        with requests.get(analysis_task.url) as response:
             response.raise_for_status()
             with open(analysis_task.get_file_path(), "wb") as file:
                 file.write(response.content)
-        logger.debug_msg(f"Downloaded {analysis_task.get_url()} in {time.time() - start_time:.2f}s")
+        logger.debug_msg(f"Downloaded {analysis_task.url} in {time.time() - start_time:.2f}s")
         self._downloaded_jars += 1
 
     def _process_task(self, url: str, timestamp: str, download_dir_path: str) -> None:
@@ -160,13 +160,15 @@ class DownloaderWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    def get_analyze_queue(self) -> Queue[AnalysisTask]:
+    @property
+    def analyze_queue(self) -> Queue[AnalysisTask]:
         """
         :return: analyze queue
         """
         return self._analyze_queue
 
-    def get_downloader_done_flag(self) -> Event:
+    @property
+    def downloader_done_flag(self) -> Event:
         """
         :return: Downloader done flag
         """

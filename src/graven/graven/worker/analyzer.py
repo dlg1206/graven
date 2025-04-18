@@ -93,17 +93,17 @@ class AnalyzerWorker:
                 cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
                                 vuln["vulnerability"]["id"].startswith("CVE")})
                 logger.info(
-                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.get_filename()}")
+                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_task.filename}")
             # add updates to queue to add later
             self._database_upload_queue.put(
-                (analysis_task.get_url(), analysis_task.get_publish_date(), cve_ids, datetime.now(timezone.utc)))
+                (analysis_task.url, analysis_task.publish_date, cve_ids, datetime.now(timezone.utc)))
             self._jars_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.get_url(), e, "grype failed to scan")
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.url, e, "grype failed to scan")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.get_url(), e,
+            self._database.log_error(self._run_id, Stage.ANALYZER, analysis_task.url, e,
                                      "error when scanning with grype")
         finally:
             analysis_task.cleanup()
@@ -137,7 +137,7 @@ class AnalyzerWorker:
                     logger.error_exp(e)
                     url = None
                     if analysis_task:
-                        url = analysis_task.get_url()
+                        url = analysis_task.url
                         analysis_task.cleanup()
 
                     self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")

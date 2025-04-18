@@ -201,7 +201,8 @@ class Grype:
         )
         return result.stdout.strip().removeprefix("grype ")
 
-    def get_db_source(self) -> str | None:
+    @property
+    def db_source(self) -> str | None:
         """
         :return: Grype database source
         """

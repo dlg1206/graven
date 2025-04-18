@@ -187,13 +187,15 @@ class CrawlerWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    def get_download_queue(self) -> Queue[Tuple[str, str]]:
+    @property
+    def download_queue(self) -> Queue[Tuple[str, str]]:
         """
         :return: URL download queue
         """
         return self._download_queue
 
-    def get_crawler_done_flag(self) -> Event:
+    @property
+    def crawler_done_flag(self) -> Event:
         """
         :return: Crawler done flag
         """

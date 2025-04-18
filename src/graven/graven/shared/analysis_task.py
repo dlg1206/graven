@@ -50,19 +50,22 @@ class AnalysisTask:
         self._download_limit.release()
         self._is_open = False
 
-    def get_url(self) -> str:
+    @property
+    def url(self) -> str:
         """
         :return: URL of the jar
         """
         return self._url
 
-    def get_publish_date(self) -> datetime:
+    @property
+    def publish_date(self) -> datetime:
         """
         :return: publish date of jar
         """
         return self._publish_date
 
-    def get_filename(self) -> str:
+    @property
+    def filename(self) -> str:
         """
         :return: Name of file
         """

@@ -55,20 +55,20 @@ def _execute(args: Namespace) -> None:
     downloader = DownloaderWorker(database,
                                   download_queue,
                                   analyze_queue,
-                                  crawler.get_crawler_done_flag(),
+                                  crawler.crawler_done_flag,
                                   args.downloader_requests,
                                   args.jar_limit)
     analyzer = AnalyzerWorker(database,
                               grype,
                               analyze_queue,
-                              downloader.get_downloader_done_flag(),
+                              downloader.downloader_done_flag,
                               args.analyzer_threads)
 
     # spawn tasks
     timer = Timer()
     with TemporaryDirectory() as tmp_dir:
         timer.start()
-        run_id = database.log_run_start(grype.get_version(), grype.get_db_source())
+        run_id = database.log_run_start(grype.get_version(), grype.db_source)
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = [
                 executor.submit(crawler.start, run_id, args.root_url if args.root_url else seed_urls.pop(), seed_urls),
