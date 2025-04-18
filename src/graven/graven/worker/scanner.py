@@ -6,10 +6,9 @@ from datetime import datetime, timezone
 from queue import Queue, LifoQueue, Empty
 from threading import Event
 
-from common.logger import logger
-
 from anchore.grype import GrypeScanFailure, Grype
-from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
+from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
+from logger import logger
 from shared.message import ScanMessage, ScribeMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 

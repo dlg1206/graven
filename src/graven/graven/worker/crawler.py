@@ -8,10 +8,10 @@ from threading import Event
 from typing import Tuple, List
 
 import requests
-from common.logger import logger
 from requests import RequestException
 
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from logger import logger
 from shared.message import DownloadMessage
 from shared.utils import Timer
 

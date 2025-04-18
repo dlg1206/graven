@@ -4,10 +4,10 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Dict, Any
 
-from common.database import MySQLDatabase
-from common.database import Table, JoinTable
-from common.logger import logger
 from mysql.connector import ProgrammingError, DatabaseError
+
+from db.database import MySQLDatabase, Table, JoinTable
+from logger import logger
 
 """
 File: cve_breadcrumbs_database.py

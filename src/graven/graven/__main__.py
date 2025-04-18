@@ -1,10 +1,9 @@
 import csv
 from argparse import ArgumentParser, Namespace
 
-from common.logger import Level, logger
-
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
+from shared.logger import Level, logger
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 from worker.downloader import DEFAULT_MAX_JAR_LIMIT
 from worker.generator import DEFAULT_MAX_GENERATOR_THREADS

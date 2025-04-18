@@ -5,8 +5,8 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.syft import Syft, SyftScanFailure
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from logger import logger
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.message import ScanMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 

@@ -2,8 +2,8 @@ import queue
 from queue import LifoQueue
 from threading import Event
 
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase
 from logger import logger
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
 from shared.message import ScribeMessage
 
 """

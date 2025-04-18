@@ -39,7 +39,6 @@ python -m venv venv
 3. Install dependencies
 
 ```bash
-pip install ../common
 pip install -r requirements.txt
 ```
 

@@ -8,7 +8,8 @@ from tempfile import TemporaryDirectory
 
 import requests
 import yaml
-from common.logger import logger
+
+from logger import logger
 
 """
 File: grype.py
