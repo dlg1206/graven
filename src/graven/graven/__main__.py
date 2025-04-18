@@ -1,9 +1,3 @@
-"""
-File: __main__.py
-Description: Main entrypoint for crawling operations
-
-@author Derek Garcia
-"""
 import concurrent
 import csv
 from argparse import ArgumentParser, Namespace
@@ -14,12 +8,19 @@ from tempfile import TemporaryDirectory
 
 from common.logger import Level, logger
 
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
 from anchore.grype import Grype, GRYPE_BIN
+from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS, Timer
 from worker.analyzer import AnalyzerWorker, DEFAULT_MAX_ANALYZER_THREADS
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker, DEFAULT_MAX_JAR_LIMIT
+
+"""
+File: __main__.py
+Description: Main entrypoint for crawling operations
+
+@author Derek Garcia
+"""
 
 
 def _execute(args: Namespace) -> None:

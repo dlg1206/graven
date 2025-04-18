@@ -1,9 +1,3 @@
-"""
-File: grype.py
-Description: Interface for interacting with the Grype binary
-
-@author Derek Garcia
-"""
 import hashlib
 import os
 import platform
@@ -15,6 +9,13 @@ from tempfile import TemporaryDirectory
 import requests
 import yaml
 from common.logger import logger
+
+"""
+File: grype.py
+Description: Interface for interacting with the Grype binary
+
+@author Derek Garcia
+"""
 
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 DB_SOURCE_FILE = "db_source"

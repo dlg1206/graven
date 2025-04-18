@@ -1,3 +1,9 @@
+import os
+import threading
+from datetime import datetime
+
+from common.logger import logger
+
 """
 File: analysis_task.py
 
@@ -5,11 +11,6 @@ Description: Metadata for a jar file to be scanned
 
 @author Derek Garcia
 """
-import os
-import threading
-from datetime import datetime
-
-from common.logger import logger
 
 
 class AnalysisTask:

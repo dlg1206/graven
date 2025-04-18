@@ -1,3 +1,7 @@
+import time
+
+from common.logger import Level, logger
+
 """
 File: heartbeat.py
 
@@ -5,9 +9,6 @@ Description: Heartbeat logger to post updates of queue status
 
 @author Derek Garcia
 """
-import time
-
-from common.logger import Level, logger
 
 DEFAULT_HEARTBEAT_INTERVAL = 5
 

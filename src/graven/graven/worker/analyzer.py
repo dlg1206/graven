@@ -1,11 +1,3 @@
-"""
-File: analyzer.py
-
-Description: Use grype to scan jars to find CVEs
-
-@author Derek Garcia
-"""
-
 import concurrent
 import json
 import os
@@ -18,11 +10,19 @@ from typing import Tuple, List
 
 from common.logger import logger
 
-from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from anchore.grype import GrypeScanFailure, Grype
 from shared.analysis_task import AnalysisTask
+from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
+
+"""
+File: analyzer.py
+
+Description: Use grype to scan jars to find CVEs
+
+@author Derek Garcia
+"""
 
 DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
 

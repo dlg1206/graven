@@ -1,10 +1,3 @@
-"""
-File: utils.py
-
-Description: Defaults for different parts of graven
-
-@author Derek Garcia
-"""
 import os
 import time
 from queue import Queue, Empty
@@ -12,6 +5,13 @@ from threading import Event
 
 from common.logger import logger
 
+"""
+File: utils.py
+
+Description: Defaults for different parts of graven
+
+@author Derek Garcia
+"""
 DEFAULT_MAX_CONCURRENT_REQUESTS = os.cpu_count()
 
 

@@ -1,9 +1,3 @@
-"""
-File: crawler.py
-Description: Crawl maven central repo for urls
-
-@author Derek Garcia
-"""
 import concurrent
 import queue
 import re
@@ -20,6 +14,13 @@ from requests import RequestException
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer
+
+"""
+File: crawler.py
+Description: Crawl maven central repo for urls
+
+@author Derek Garcia
+"""
 
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")

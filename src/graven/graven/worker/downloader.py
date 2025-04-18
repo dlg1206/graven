@@ -1,10 +1,3 @@
-"""
-File: downloader.py
-
-Description: Download jars into temp directories to be scanned
-
-@author Derek Garcia
-"""
 import concurrent
 import queue
 import time
@@ -17,10 +10,18 @@ import requests
 from common.logger import logger
 from requests import RequestException
 
-from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.analysis_task import AnalysisTask
+from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
 from shared.utils import Timer, first_time_wait_for_tasks
+
+"""
+File: downloader.py
+
+Description: Download jars into temp directories to be scanned
+
+@author Derek Garcia
+"""
 
 DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
 DOWNLOAD_QUEUE_TIMEOUT = 0

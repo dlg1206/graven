@@ -1,10 +1,3 @@
-"""
-File: cve_breadcrumbs_database.py
-
-Description: MySQL database interface for CVE-Breadcrumbs database
-
-@author Derek Garcia
-"""
 import json
 import time
 from datetime import datetime
@@ -15,6 +8,14 @@ from common.database import MySQLDatabase
 from common.database import Table, JoinTable
 from common.logger import logger
 from mysql.connector import ProgrammingError, DatabaseError
+
+"""
+File: cve_breadcrumbs_database.py
+
+Description: MySQL database interface for CVE-Breadcrumbs database
+
+@author Derek Garcia
+"""
 
 DEFAULT_POOL_SIZE = 32
 
