@@ -7,13 +7,15 @@ from threading import Event
 from typing import List
 
 from anchore.grype import Grype
+from anchore.syft import Syft
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
-from shared.message import DownloadMessage, AnalysisMessage, ScribeMessage
+from shared.message import DownloadMessage, AnalysisMessage, ScribeMessage, GeneratorMessage
 from shared.utils import Timer
 from worker.analyzer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
+from worker.generator import GeneratorWorker
 from worker.scribe import ScribeWorker
 
 """
@@ -43,6 +45,10 @@ class WorkerFactory:
         self._download_queue: Queue[DownloadMessage] = Queue()
         self._downloader_done_flag = Event()
 
+        # shared generator objects
+        self._generator_queue: Queue[GeneratorMessage] = Queue()
+        self._generator_done_flag = Event()
+
         # shared analyzer objects
         self._analyze_queue: Queue[AnalysisMessage] = Queue()
         self._analyzer_done_flag = Event()
@@ -67,9 +73,25 @@ class WorkerFactory:
         :param download_limit: Max number of jars to be downloaded at one time
         :return: DownloaderWorker
         """
-        return DownloaderWorker(self._database, self._download_queue, self._analyze_queue,
+        return DownloaderWorker(self._database, self._download_queue, self._generator_queue,
                                 self._crawler_done_flag, self._downloader_done_flag,
                                 max_concurrent_requests, download_limit)
+
+    def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
+        """
+        Create a new downloader worker
+
+        :param max_threads: Max number of concurrent requests allowed to be made at once
+        :param syft_path: Path to syft bin (Default: assume on path or in pwd)
+        :return: GeneratorWorker
+        """
+        # init syft
+        if syft_path:
+            syft = Syft(syft_path)
+        else:
+            syft = Syft()
+        return GeneratorWorker(self._database, syft, self._generator_queue, self._analyze_queue,
+                               self._downloader_done_flag, self._generator_done_flag, max_threads)
 
     def create_analyzer_worker(self, max_threads: int, grype_path: str = None,
                                grype_db_source: str = None) -> AnalyzerWorker:
@@ -86,10 +108,19 @@ class WorkerFactory:
         else:
             grype = Grype(grype_db_source)
         return AnalyzerWorker(self._database, grype, self._analyze_queue, self._scribe_queue,
-                              self._downloader_done_flag, self._analyzer_done_flag, max_threads)
+                              self._generator_done_flag, self._analyzer_done_flag, max_threads)
 
-    def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, analyzer: AnalyzerWorker,
-                    root_url: str = None, seed_urls: List[str] = None) -> None:
+    def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker, analyzer: AnalyzerWorker, root_url: str = None, seed_urls: List[str] = None) -> None:
+        """
+        Run all workers until completed
+
+        :param crawler: Crawler Worker
+        :param downloader: Downloader Worker
+        :param generator: Generator Worker
+        :param analyzer: Analyzer Worker
+        :param root_url: Root URL to start at
+        :param seed_urls: List of URLs to continue crawling
+        """
         logger.info("Launching Graven worker threads...")
         scribe = ScribeWorker(self._database, self._scribe_queue, self._analyzer_done_flag)
         # spawn tasks
@@ -97,11 +128,12 @@ class WorkerFactory:
         with TemporaryDirectory() as tmp_dir:
             timer.start()
             run_id = self._database.log_run_start(analyzer.grype.get_version(), analyzer.grype.db_source)
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
                     executor.submit(scribe.start, run_id),
                     executor.submit(crawler.start, run_id, root_url if root_url else seed_urls.pop(), seed_urls),
                     executor.submit(downloader.start, run_id, tmp_dir),
+                    executor.submit(generator.start, run_id),
                     executor.submit(analyzer.start, run_id)
                 ]
                 concurrent.futures.wait(futures)
@@ -112,4 +144,5 @@ class WorkerFactory:
         logger.info(f"Total Execution Time: {timer.format_time()}")
         crawler.print_statistics_message()
         downloader.print_statistics_message()
+        generator.print_statistics_message()
         analyzer.print_statistics_message()

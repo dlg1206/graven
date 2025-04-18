@@ -4,9 +4,11 @@ from argparse import ArgumentParser, Namespace
 from common.logger import Level, logger
 
 from anchore.grype import GRYPE_BIN
+from anchore.syft import SYFT_BIN
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 from worker.analyzer import DEFAULT_MAX_ANALYZER_THREADS
 from worker.downloader import DEFAULT_MAX_JAR_LIMIT
+from worker.generator import DEFAULT_MAX_GENERATOR_THREADS
 from worker.worker_factory import WorkerFactory
 
 """
@@ -36,10 +38,11 @@ def _execute(args: Namespace) -> None:
     # make workers
     crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests, args.update)
     downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
-    analyzer = worker_factory.create_analyzer_worker(args.max_threads, args.grype_path, args.grype_db_source)
+    generator = worker_factory.create_generator_worker(args.max_generator_threads, args.syft_path)
+    analyzer = worker_factory.create_analyzer_worker(args.max_analyzer_threads, args.grype_path, args.grype_db_source)
 
     # start job
-    worker_factory.run_workers(crawler, downloader, analyzer, args.root_url, seed_urls)
+    worker_factory.run_workers(crawler, downloader, generator, analyzer, args.root_url, seed_urls)
 
 
 def _create_parser() -> ArgumentParser:
@@ -93,11 +96,24 @@ def _create_parser() -> ArgumentParser:
                                   help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
                                   default=DEFAULT_MAX_JAR_LIMIT)
 
+    generator_group = parser.add_argument_group("Generator Options")
+    generator_group.add_argument("--max-generator-threads",
+                                 metavar="<number of the threads>",
+                                 type=int,
+                                 help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_GENERATOR_THREADS})",
+                                 default=DEFAULT_MAX_GENERATOR_THREADS)
+
+    generator_group.add_argument("--syft-path",
+                                 metavar="<absolute path to syft binary>",
+                                 type=str,
+                                 help=f"Path to syft binary to use. By default, assumes syft is already on the PATH",
+                                 default=SYFT_BIN)
+
     analyzer_group = parser.add_argument_group("Analyzer Options")
-    analyzer_group.add_argument("--max-threads",
+    analyzer_group.add_argument("--max-analyzer-threads",
                                 metavar="<number of the threads>",
                                 type=int,
-                                help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
+                                help=f"Max number of threads allowed to be used to scan SBOMs. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
                                 default=DEFAULT_MAX_ANALYZER_THREADS)
 
     analyzer_group.add_argument("--grype-path",

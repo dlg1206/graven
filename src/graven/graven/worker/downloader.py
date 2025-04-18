@@ -11,7 +11,7 @@ from requests import RequestException
 
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
-from shared.message import DownloadMessage, AnalysisMessage
+from shared.message import DownloadMessage, AnalysisMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -29,7 +29,7 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 class DownloaderWorker:
     def __init__(self, database: BreadcrumbsDatabase,
                  download_queue: Queue[DownloadMessage],
-                 analyze_queue: Queue[AnalysisMessage],
+                 generator_queue: Queue[GeneratorMessage],
                  crawler_done_flag: Event,
                  downloader_done_flag: Event,
                  max_concurrent_requests: int,
@@ -40,7 +40,7 @@ class DownloaderWorker:
 
         :param database: The database to store any error messages in
         :param download_queue: Queue to pop urls of jars to download from
-        :param analyze_queue: Queue of paths to jars to analyze to push to
+        :param generator_queue: Queue of paths to jars to generate SBOMs for
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
         :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
@@ -48,7 +48,7 @@ class DownloaderWorker:
         """
         self._database = database
         self._download_queue = download_queue
-        self._analyze_queue = analyze_queue
+        self._generator_queue = generator_queue
         self._crawler_done_flag = crawler_done_flag
         self._downloader_done_flag = downloader_done_flag
         self._max_concurrent_requests = max_concurrent_requests
@@ -82,11 +82,11 @@ class DownloaderWorker:
         :param download_message: Message with download data
         :param download_dir_path: Path to directory to download jar to
         """
-        analysis_msg = AnalysisMessage(download_message.jar_url, download_message.jar_publish_date,
-                                       self._download_limit, download_dir_path)
+        generator_msg = GeneratorMessage(download_message.jar_url, download_message.jar_publish_date,
+                                         self._download_limit, download_dir_path)
         try:
-            self._download_jar(analysis_msg.url, analysis_msg.get_file_path())
-            self._analyze_queue.put(analysis_msg)
+            self._download_jar(generator_msg.url, generator_msg.get_file_path())
+            self._generator_queue.put(generator_msg)
         except RequestException as e:
             # failed to get jar
             logger.error_exp(e)
@@ -100,7 +100,7 @@ class DownloaderWorker:
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e, "Error in download")
-            analysis_msg.cleanup()  # rm and release if anything goes wrong
+            generator_msg.cleanup()  # rm and release if anything goes wrong
         finally:
             self._download_queue.task_done()
 
@@ -169,7 +169,7 @@ class DownloaderWorker:
         """
         :return: analyze queue
         """
-        return self._analyze_queue
+        return self._generator_queue
 
     @property
     def downloader_done_flag(self) -> Event:

@@ -22,7 +22,7 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 
-DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count()
+DEFAULT_MAX_ANALYZER_THREADS = os.cpu_count() / 2   # GeneratorWorker gets other half of threads
 
 
 class AnalyzerWorker:
@@ -30,7 +30,7 @@ class AnalyzerWorker:
                  grype: Grype,
                  analyze_queue: Queue[AnalysisMessage],
                  scribe_queue: LifoQueue[ScribeMessage],
-                 downloader_done_flag: Event,
+                 generator_done_flag: Event,
                  analyzer_done_flag: Event,
                  max_threads: int):
         """
@@ -40,7 +40,7 @@ class AnalyzerWorker:
         :param grype: Grype interface to use for scanning
         :param analyze_queue: Queue of tasks to analyze
         :param scribe_queue: Queue of results to eventually write to the database
-        :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
+        :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
         :param analyzer_done_flag: Flag to indicate to rest of pipeline that the analyzer is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
         """
@@ -48,13 +48,13 @@ class AnalyzerWorker:
         self._grype = grype
         self._analyze_queue = analyze_queue
         self._scribe_queue = scribe_queue
-        self._downloader_done_flag = downloader_done_flag
+        self._generator_done_flag = generator_done_flag
         self._analyzer_done_flag = analyzer_done_flag
         self._max_threads = max_threads
 
         self._heartbeat = Heartbeat("Analysis")
         self._timer = Timer()
-        self._jars_scanned = 0
+        self._sboms_scanned = 0
         self._run_id = None
 
     def _grype_scan(self, analysis_msg: AnalysisMessage) -> None:
@@ -67,7 +67,7 @@ class AnalyzerWorker:
         cve_ids = []
         # scan
         try:
-            return_code = self._grype.scan(analysis_msg.get_file_path(), analysis_msg.get_grype_file_path())
+            return_code = self._grype.scan(analysis_msg.syft_sbom_path, analysis_msg.get_grype_file_path())
             # return.code == 1, which means cves were found
             if return_code:
                 # save results
@@ -78,11 +78,11 @@ class AnalyzerWorker:
                 cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
                                 vuln["vulnerability"]["id"].startswith("CVE")})
                 logger.info(
-                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_msg.filename}")
+                    f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {analysis_msg.syft_sbom_path}")
             # add updates to queue to add later
             self._scribe_queue.put(
                 ScribeMessage(analysis_msg.url, analysis_msg.publish_date, cve_ids, datetime.now(timezone.utc)))
-            self._jars_scanned += 1
+            self._sboms_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.ANALYZER, analysis_msg.url, e, "grype failed to scan")
@@ -102,10 +102,10 @@ class AnalyzerWorker:
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             first_time_wait_for_tasks("Analyzer", self._analyze_queue,
-                                      self._downloader_done_flag)  # block until items to process
+                                      self._generator_done_flag)  # block until items to process
             self._timer.start()
             # run while the downloader is still running or still tasks to process
-            while not (self._downloader_done_flag.is_set() and self._analyze_queue.empty()):
+            while not (self._generator_done_flag.is_set() and self._analyze_queue.empty()):
                 analysis_task = None
                 try:
                     analysis_task = self._analyze_queue.get_nowait()
@@ -137,7 +137,7 @@ class AnalyzerWorker:
         """
         logger.info(f"Analyzer completed in {self._timer.format_time()} using {self._max_threads} threads")
         logger.info(
-            f"Analyzer has scanned {self._jars_scanned} jars ({self._timer.get_count_per_second(self._jars_scanned):.01f} jars / s)")
+            f"Analyzer has scanned {self._sboms_scanned} jars ({self._timer.get_count_per_second(self._sboms_scanned):.01f} jars / s)")
 
     def start(self, run_id: int) -> None:
         """

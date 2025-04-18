@@ -28,6 +28,7 @@ class Stage(Enum):
     """
     CRAWLER = "CRAWL"
     DOWNLOADER = "DWNLD"
+    GENERATOR = "GENER"
     ANALYZER = "ALYZR"
 
 
