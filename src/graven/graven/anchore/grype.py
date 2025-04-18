@@ -59,6 +59,9 @@ class Grype:
         # ensure auto updates are off
         os.environ["GRYPE_DB_AUTO_UPDATE"] = "false"
         os.environ["GRYPE_CHECK_FOR_APP_UPDATE"] = "false"
+        # use java cpes
+        os.environ["GRYPE_MATCH_STOCK_USING_CPES"] = "false"
+        os.environ["GRYPE_MATCH_JAVA_USING_CPES"] = "true"
 
         # install requested db if not match
         if db_source_url and not self._cache_match_url():

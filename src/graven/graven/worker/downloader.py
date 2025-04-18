@@ -11,7 +11,7 @@ from requests import RequestException
 
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
-from shared.message import DownloadMessage, AnalysisMessage, GeneratorMessage
+from shared.message import DownloadMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -163,13 +163,6 @@ class DownloaderWorker:
         # done
         self._timer.stop()
         self.print_statistics_message()
-
-    @property
-    def analyze_queue(self) -> Queue[AnalysisMessage]:
-        """
-        :return: analyze queue
-        """
-        return self._generator_queue
 
     @property
     def downloader_done_flag(self) -> Event:

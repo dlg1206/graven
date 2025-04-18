@@ -8,7 +8,7 @@ from anchore.syft import Syft, SyftScanFailure
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from shared.heartbeat import Heartbeat
-from shared.message import AnalysisMessage, GeneratorMessage
+from shared.message import ScanMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -19,15 +19,14 @@ Description: Use syft to generate SBOMs
 @author Derek Garcia
 """
 
-
-DEFAULT_MAX_GENERATOR_THREADS = os.cpu_count() / 2   # AnalyzerWorker gets other half of threads
+DEFAULT_MAX_GENERATOR_THREADS = os.cpu_count() / 2  # AnalyzerWorker gets other half of threads
 
 
 class GeneratorWorker:
     def __init__(self, database: BreadcrumbsDatabase,
                  syft: Syft,
                  generator_queue: Queue[GeneratorMessage],
-                 analyze_queue: Queue[AnalysisMessage],
+                 analyze_queue: Queue[ScanMessage],
                  downloader_done_flag: Event,
                  generator_done_flag: Event,
                  max_threads: int):
@@ -64,7 +63,9 @@ class GeneratorWorker:
 
         try:
             return_code = self._syft.scan(generator_msg.get_file_path(), generator_msg.get_syft_file_path())
-            self._analyze_queue.put(AnalysisMessage(generator_msg.url, generator_msg.publish_date, generator_msg.get_syft_file_path(), generator_msg.working_dir_path))
+            self._analyze_queue.put(
+                ScanMessage(generator_msg.url, generator_msg.publish_date, generator_msg.get_syft_file_path(),
+                            generator_msg.working_dir_path))
             # TODO - save SBOM and additional details
             self._sboms_generated += 1
         except SyftScanFailure as e:

@@ -6,9 +6,9 @@ from common.logger import Level, logger
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
-from worker.analyzer import DEFAULT_MAX_ANALYZER_THREADS
 from worker.downloader import DEFAULT_MAX_JAR_LIMIT
 from worker.generator import DEFAULT_MAX_GENERATOR_THREADS
+from worker.scanner import DEFAULT_MAX_SCANNER_THREADS
 from worker.worker_factory import WorkerFactory
 
 """
@@ -39,10 +39,10 @@ def _execute(args: Namespace) -> None:
     crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests, args.update)
     downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
     generator = worker_factory.create_generator_worker(args.max_generator_threads, args.syft_path)
-    analyzer = worker_factory.create_analyzer_worker(args.max_analyzer_threads, args.grype_path, args.grype_db_source)
+    scanner = worker_factory.create_scanner_worker(args.max_scanner_threads, args.grype_path, args.grype_db_source)
 
     # start job
-    worker_factory.run_workers(crawler, downloader, generator, analyzer, args.root_url, seed_urls)
+    worker_factory.run_workers(crawler, downloader, generator, scanner, args.root_url, seed_urls)
 
 
 def _create_parser() -> ArgumentParser:
@@ -100,7 +100,7 @@ def _create_parser() -> ArgumentParser:
     generator_group.add_argument("--max-generator-threads",
                                  metavar="<number of the threads>",
                                  type=int,
-                                 help=f"Max number of threads allowed to be used to scan jars. Increase with caution (Default: {DEFAULT_MAX_GENERATOR_THREADS})",
+                                 help=f"Max number of threads allowed to be used to generate sboms. Increase with caution (Default: {DEFAULT_MAX_GENERATOR_THREADS})",
                                  default=DEFAULT_MAX_GENERATOR_THREADS)
 
     generator_group.add_argument("--syft-path",
@@ -109,23 +109,23 @@ def _create_parser() -> ArgumentParser:
                                  help=f"Path to syft binary to use. By default, assumes syft is already on the PATH",
                                  default=SYFT_BIN)
 
-    analyzer_group = parser.add_argument_group("Analyzer Options")
-    analyzer_group.add_argument("--max-analyzer-threads",
-                                metavar="<number of the threads>",
-                                type=int,
-                                help=f"Max number of threads allowed to be used to scan SBOMs. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
-                                default=DEFAULT_MAX_ANALYZER_THREADS)
+    scanner_group = parser.add_argument_group("Scanner Options")
+    scanner_group.add_argument("--max-scanner-threads",
+                               metavar="<number of the threads>",
+                               type=int,
+                               help=f"Max number of threads allowed to be used to scan SBOMs. Increase with caution (Default: {DEFAULT_MAX_SCANNER_THREADS})",
+                               default=DEFAULT_MAX_SCANNER_THREADS)
 
-    analyzer_group.add_argument("--grype-path",
-                                metavar="<absolute path to grype binary>",
-                                type=str,
-                                help=f"Path to Grype binary to use. By default, assumes grype is already on the PATH",
-                                default=GRYPE_BIN)
+    scanner_group.add_argument("--grype-path",
+                               metavar="<absolute path to grype binary>",
+                               type=str,
+                               help=f"Path to Grype binary to use. By default, assumes grype is already on the PATH",
+                               default=GRYPE_BIN)
 
-    analyzer_group.add_argument("--grype-db-source",
-                                metavar="<url of grype database to use>",
-                                type=str,
-                                help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
+    scanner_group.add_argument("--grype-db-source",
+                               metavar="<url of grype database to use>",
+                               type=str,
+                               help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
 
     return parser
 

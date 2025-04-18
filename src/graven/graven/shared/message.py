@@ -90,7 +90,7 @@ class GeneratorMessage:
         return f"{self.get_file_path()}.syft.json"
 
 
-class AnalysisMessage:
+class ScanMessage:
     def __init__(self, url: str, publish_date: datetime, syft_sbom_path: str, working_dir_path: str):
         """
         Task metadata object with details about the downloaded jar

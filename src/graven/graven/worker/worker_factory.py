@@ -10,12 +10,12 @@ from anchore.grype import Grype
 from anchore.syft import Syft
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase
-from shared.message import DownloadMessage, AnalysisMessage, ScribeMessage, GeneratorMessage
+from shared.message import DownloadMessage, ScanMessage, ScribeMessage, GeneratorMessage
 from shared.utils import Timer
-from worker.analyzer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
+from worker.scanner import ScannerWorker
 from worker.scribe import ScribeWorker
 
 """
@@ -49,9 +49,9 @@ class WorkerFactory:
         self._generator_queue: Queue[GeneratorMessage] = Queue()
         self._generator_done_flag = Event()
 
-        # shared analyzer objects
-        self._analyze_queue: Queue[AnalysisMessage] = Queue()
-        self._analyzer_done_flag = Event()
+        # shared scanner objects
+        self._scan_queue: Queue[ScanMessage] = Queue()
+        self._scan_done_flag = Event()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update: bool) -> CrawlerWorker:
         """
@@ -90,13 +90,13 @@ class WorkerFactory:
             syft = Syft(syft_path)
         else:
             syft = Syft()
-        return GeneratorWorker(self._database, syft, self._generator_queue, self._analyze_queue,
+        return GeneratorWorker(self._database, syft, self._generator_queue, self._scan_queue,
                                self._downloader_done_flag, self._generator_done_flag, max_threads)
 
-    def create_analyzer_worker(self, max_threads: int, grype_path: str = None,
-                               grype_db_source: str = None) -> AnalyzerWorker:
+    def create_scanner_worker(self, max_threads: int, grype_path: str = None,
+                              grype_db_source: str = None) -> ScannerWorker:
         """
-        Create a new analyzer worker
+        Create a new scanner worker
 
         :param max_threads: Max number of concurrent requests allowed to be made at once
         :param grype_path: Path to grype bin (Default: assume on path or in pwd)
@@ -107,34 +107,35 @@ class WorkerFactory:
             grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
         else:
             grype = Grype(grype_db_source)
-        return AnalyzerWorker(self._database, grype, self._analyze_queue, self._scribe_queue,
-                              self._generator_done_flag, self._analyzer_done_flag, max_threads)
+        return ScannerWorker(self._database, grype, self._scan_queue, self._scribe_queue,
+                             self._generator_done_flag, self._scan_done_flag, max_threads)
 
-    def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker, analyzer: AnalyzerWorker, root_url: str = None, seed_urls: List[str] = None) -> None:
+    def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
+                    scanner: ScannerWorker, root_url: str = None, seed_urls: List[str] = None) -> None:
         """
         Run all workers until completed
 
         :param crawler: Crawler Worker
         :param downloader: Downloader Worker
         :param generator: Generator Worker
-        :param analyzer: Analyzer Worker
+        :param scanner: Scanner Worker
         :param root_url: Root URL to start at
         :param seed_urls: List of URLs to continue crawling
         """
         logger.info("Launching Graven worker threads...")
-        scribe = ScribeWorker(self._database, self._scribe_queue, self._analyzer_done_flag)
+        scribe = ScribeWorker(self._database, self._scribe_queue, self._scan_done_flag)
         # spawn tasks
         timer = Timer()
         with TemporaryDirectory() as tmp_dir:
             timer.start()
-            run_id = self._database.log_run_start(analyzer.grype.get_version(), analyzer.grype.db_source)
+            run_id = self._database.log_run_start(scanner.grype.get_version(), scanner.grype.db_source)
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
                     executor.submit(scribe.start, run_id),
                     executor.submit(crawler.start, run_id, root_url if root_url else seed_urls.pop(), seed_urls),
                     executor.submit(downloader.start, run_id, tmp_dir),
                     executor.submit(generator.start, run_id),
-                    executor.submit(analyzer.start, run_id)
+                    executor.submit(scanner.start, run_id)
                 ]
                 concurrent.futures.wait(futures)
 
@@ -145,4 +146,4 @@ class WorkerFactory:
         crawler.print_statistics_message()
         downloader.print_statistics_message()
         generator.print_statistics_message()
-        analyzer.print_statistics_message()
+        scanner.print_statistics_message()

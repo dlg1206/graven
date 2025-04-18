@@ -39,6 +39,8 @@ class Syft:
         self._verify_syft_installation()
         # ensure auto updates are off
         os.environ["SYFT_CHECK_FOR_APP_UPDATE"] = "false"
+        # ensure just using jar scanner
+        os.environ["SYFT_DEFAULT_CATALOGERS"] = "java-archive-cataloger"
 
     def _verify_syft_installation(self) -> None:
         """
