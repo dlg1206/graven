@@ -10,7 +10,6 @@ from common.logger import logger
 
 from anchore.grype import GrypeScanFailure, Grype
 from shared.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
-from shared.heartbeat import Heartbeat
 from shared.message import ScanMessage, ScribeMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
@@ -52,7 +51,6 @@ class ScannerWorker:
         self._scanner_done_flag = scanner_done_flag
         self._max_threads = max_threads
 
-        self._heartbeat = Heartbeat("Scanner")
         self._timer = Timer()
         self._sboms_scanned = 0
         self._run_id = None

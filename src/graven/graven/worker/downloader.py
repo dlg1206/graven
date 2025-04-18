@@ -10,7 +10,6 @@ from common.logger import logger
 from requests import RequestException
 
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from shared.heartbeat import Heartbeat
 from shared.message import DownloadMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
@@ -54,7 +53,6 @@ class DownloaderWorker:
         self._max_concurrent_requests = max_concurrent_requests
         self._download_limit = Semaphore(download_limit)
 
-        self._heartbeat = Heartbeat("Downloader")
         self._timer = Timer()
         self._downloaded_jars = 0
         self._run_id = None

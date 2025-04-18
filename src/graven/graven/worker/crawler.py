@@ -12,7 +12,6 @@ from common.logger import logger
 from requests import RequestException
 
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from shared.heartbeat import Heartbeat
 from shared.message import DownloadMessage
 from shared.utils import Timer
 
@@ -51,7 +50,6 @@ class CrawlerWorker:
         self._download_queue = download_queue
         self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
-        self._heartbeat = Heartbeat("Crawler")
         self._timer = Timer()
         self._urls_seen = 0
         self._run_id = None

@@ -7,7 +7,6 @@ from threading import Event
 from anchore.syft import Syft, SyftScanFailure
 from logger import logger
 from shared.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from shared.heartbeat import Heartbeat
 from shared.message import ScanMessage, GeneratorMessage
 from shared.utils import Timer, first_time_wait_for_tasks
 
@@ -49,7 +48,6 @@ class GeneratorWorker:
         self._generator_done_flag = generator_done_flag
         self._max_threads = max_threads
 
-        self._heartbeat = Heartbeat("Generator")
         self._timer = Timer()
         self._sboms_generated = 0
         self._run_id = None
