@@ -143,7 +143,6 @@ class GeneratorWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-
     def get_syft_version(self) -> str:
         """
         :return: Version of syft being used by this generator

@@ -139,7 +139,8 @@ class WorkerFactory:
         timer = Timer()
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             timer.start()
-            run_id = self._database.log_run_start(generator.get_syft_version(), scanner.get_grype_version(), scanner.get_grype_db_source())
+            run_id = self._database.log_run_start(generator.get_syft_version(), scanner.get_grype_version(),
+                                                  scanner.get_grype_db_source())
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
                     executor.submit(analyzer.start, run_id),

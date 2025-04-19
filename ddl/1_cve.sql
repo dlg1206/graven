@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS cve
 (
     cve_id       VARCHAR(20) PRIMARY KEY,
+    severity     VARCHAR(10),
     cvss         DOUBLE,
     publish_date TIMESTAMP,
     description  TEXT,

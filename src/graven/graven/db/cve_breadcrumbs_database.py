@@ -1,8 +1,7 @@
 import json
-import time
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 from mysql.connector import ProgrammingError, DatabaseError
 
@@ -64,6 +63,15 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         return len(self._select(Table.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
 
+    def has_seen_cve(self, cve_id: str) -> bool:
+        """
+        Check if the database has seen these cves before
+
+        :param cve_id: CVE id to check
+        :return: True if seen, false otherwise
+        """
+        return len(self._select(Table.CVE, where_equals=[('cve_id', cve_id)])) != 0
+
     def save_domain_url_as_seen(self, run_id: int, url: str, last_crawled: datetime) -> None:
         """
         Save that this domain has been crawled
@@ -73,6 +81,16 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param last_crawled: Timestamp of when last crawled domain (Default: now)
         """
         self._upsert(Table.DOMAIN, [('url', url)], [('run_id', run_id), ('last_crawled', last_crawled)])
+
+    def upsert_cve(self, run_id: int, cve_id: str, **kwargs: str | int | datetime) -> None:
+        """
+        Upsert cve to the database
+
+        :param run_id: Run id this was found in
+        :param cve_id: CVE id to update
+        :param kwargs: table key value pairs to update the database with
+        """
+        self._upsert(Table.CVE, [('cve_id', cve_id)], [('run_id', run_id)] + list(kwargs.items()))
 
     def upsert_jar(self, run_id: int, jar_url: str, published_date: datetime) -> None:
         """
@@ -95,22 +113,26 @@ class BreadcrumbsDatabase(MySQLDatabase):
         ]
         self._upsert(Table.JAR, [('jar_id', jar_id)], inserts)
 
-    def upsert_grype_results(self, run_id: int, jar_id: str, cves: List[str], last_scanned: str) -> None:
+    def upsert_jar_last_scan(self, run_id: int, jar_id: str, last_scanned: str) -> None:
         """
-        Add a jar to the database and any associated CVEs
+        Update when the last time the jar's SBOM was scanned with grype
+
+        :param run_id: Run id this was done
+        :param jar_id: id of the jar being scanned
+        :param last_scanned: timestamp string of the last scan
+        """
+        self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_scanned', last_scanned)])
+
+    def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
+        """
+        Save a jar and cve that impacts it
+        Jar and CVE must exist in db prior
 
         :param run_id: ID of the jar and scan was done in
         :param jar_id: id of jar
-        :param cves: List of CVEs associated with the jar
-        :param last_scanned: Date last scanned with grype (Default: now)
+        :param cve_id: id of cve
         """
-        start_time = time.time()
-        self._upsert(Table.JAR, [('jar_id', jar_id)], [('last_scanned', last_scanned)])
-        # add cves
-        for cve_id in cves:
-            self._upsert(Table.CVE, [('cve_id', cve_id)], [('run_id', run_id)])
-            self._upsert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)], [('run_id', run_id)])
-        logger.debug_msg(f"Processed {jar_id} and {len(cves)} CVEs in {time.time() - start_time:.2f}s")
+        self._upsert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)], [('run_id', run_id)])
 
     def log_run_start(self, syft_version: str, grype_version: str, grype_db_source: str) -> int:
         """

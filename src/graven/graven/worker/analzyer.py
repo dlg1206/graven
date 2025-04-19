@@ -45,17 +45,34 @@ class AnalyzerWorker:
         self._run_id = None
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
-        # save results
+        """
+        Parse and save grype results into the database
+        jar must exist in the database
+
+        :param jar_id: Primary jar id
+        :param grype_file: Metadata object with path to grype file
+        """
         with open(grype_file.file_path, "r") as file:
             grype_data = json.load(file)
-        # get all cves
-        cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
-                        vuln["vulnerability"]["id"].startswith("CVE")})
-        logger.info(
-            f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {grype_file.file_path}")
 
-        # save to db
-        self._database.upsert_grype_results(self._run_id, jar_id, cve_ids, grype_data['descriptor']['timestamp'])
+        for hit in grype_data['matches']:
+            vuln = hit['vulnerability']
+            vid = vuln['id']
+            # skip non-cves
+            if not vid.startswith('CVE'):
+                logger.debug_msg(f"Skipping non-CVE '{vid}'")
+                continue
+            # skip update if seen
+            if self._database.has_seen_cve(vid):
+                logger.debug_msg(f"Seen '{vid}', skipping. . .")
+            else:
+                self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
+                logger.info(f"Found new CVE: '{vid}'")
+
+            # save to db
+            self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
+        # save timestamp
+        self._database.upsert_jar_last_scan(self._run_id, jar_id, grype_data['descriptor']['timestamp'])
 
     def _process_message(self, message: Message) -> None:
         """
