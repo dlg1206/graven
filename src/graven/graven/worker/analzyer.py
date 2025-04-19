@@ -6,8 +6,10 @@ from math import floor
 from queue import Queue, Empty
 from threading import Event
 
+import zstandard as zstd
+
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from qmodel.file import GrypeFile
+from qmodel.file import GrypeFile, SyftFile
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import first_time_wait_for_tasks
@@ -36,13 +38,20 @@ class AnalyzerWorker:
         :param scanner_done_flag: Flag to indicate the analyzer has finished running
         :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
         """
-        # attempt to log in into the database
         self._database = database
         self._analyze_queue = analyze_queue
         self._scanner_done_flag = scanner_done_flag
         self._max_threads = max_threads
+        self._cctx = zstd.ZstdCompressor()  # compression lib
 
         self._run_id = None
+
+    def _compress_and_save_sbom(self, jar_id: str, syft_file: SyftFile) -> None:
+        with open(syft_file.file_path, "rb") as f:
+            compressed_data = self._cctx.compress(f.read())
+
+        self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
+        logger.info(f"Compressed and saved '{syft_file.file_path}'")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -80,12 +89,17 @@ class AnalyzerWorker:
 
         :param message: Message with all data to parse and save
         """
-
-        # scan
         try:
+            # save jar
             self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
+            # process and save sbom
+            if message.syft_file.is_open:
+                self._compress_and_save_sbom(message.jar_id, message.syft_file)
+                message.syft_file.close()
+            # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
+                message.grype_file.close()
             logger.info(f"Saved {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)

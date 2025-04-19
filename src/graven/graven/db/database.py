@@ -33,6 +33,7 @@ class Table(TableEnum):
     CVE = "cve"
     CWE = "cwe"
     JAR = "jar"
+    SBOM = "sbom"
     DOMAIN = "domain"
     ERROR_LOG = "error_log"
     RUN_LOG = "run_log"

@@ -3,3 +3,4 @@ PyYAML==6.0.2
 python-dotenv==1.0.1
 mysql-connector-python==9.2.0
 tqdm==4.67.1
+zstandard==0.23.0

@@ -123,6 +123,9 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_scanned', last_scanned)])
 
+    def upsert_sbom_blob(self, run_id: int, jar_id: str, sbom_blob: bytes) -> None:
+        self._upsert(Table.SBOM, [('jar_id', jar_id)], [('run_id', run_id), ('sbom', sbom_blob)])
+
     def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
         """
         Save a jar and cve that impacts it
