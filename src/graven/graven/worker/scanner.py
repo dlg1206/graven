@@ -18,7 +18,7 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 # GeneratorWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2 + 1)
+DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
 
 
 class ScannerWorker:

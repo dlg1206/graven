@@ -19,7 +19,7 @@ Description: Use syft to generate SBOMs
 """
 
 # ScannerWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2 + 2)
+DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
 
 
 class GeneratorWorker:

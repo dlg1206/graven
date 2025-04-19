@@ -195,7 +195,7 @@ class AnalyzerWorker:
                     To prevent deadlocks, the forced timeout with throw this error
                     for another iteration of the loop to check conditions
                     """
-                    if self._scanner_done_flag.is_set() and self._analyze_queue.empty()
+                    if self._scanner_done_flag.is_set() and self._analyze_queue.empty():
                         break
                 except Exception as e:
                     logger.error_exp(e)
