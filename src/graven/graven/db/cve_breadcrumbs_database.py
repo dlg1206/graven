@@ -73,6 +73,15 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         return len(self._select(Table.CVE, where_equals=[('cve_id', cve_id)])) != 0
 
+    def has_seen_cwe(self, cwe_id: str) -> bool:
+        """
+        Check if the database has seen these cwes before
+
+        :param cwe_id: CWE id to check
+        :return: True if seen, false otherwise
+        """
+        return len(self._select(Table.CWE, where_equals=[('cwe_id', cwe_id)])) != 0
+
     def has_seen_purl(self, purl: str) -> bool:
         """
         Check if the database has seen these purls before
@@ -111,6 +120,16 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param kwargs: table key value pairs to update the database with
         """
         self._upsert(Table.CVE, [('cve_id', cve_id)], [('run_id', run_id)] + list(kwargs.items()))
+
+    def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: str) -> None:
+        """
+        Upsert cwe to the database
+
+        :param run_id: Run id this was found in
+        :param cwe_id: CWE id to update
+        :param kwargs: table key value pairs to update the database with
+        """
+        self._upsert(Table.CWE, [('cwe_id', cwe_id)], [('run_id', run_id)] + list(kwargs.items()))
 
     def upsert_jar(self, run_id: int, jar_url: str, published_date: datetime) -> None:
         """

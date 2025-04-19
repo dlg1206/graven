@@ -16,7 +16,7 @@ from worker.analzyer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
-from worker.nvd import NVDWorker
+from worker.nvd_mitre import NVDMitreWorker
 from worker.scanner import ScannerWorker
 
 """
@@ -141,7 +141,8 @@ class WorkerFactory:
         :param seed_urls: List of URLs to continue crawling
         """
         logger.info("Launching Graven worker threads...")
-        nvd_worker = NVDWorker(self._database, self._cve_queue, self._analyzer_done_flag)  # for getting cve details
+        vuln_worker = NVDMitreWorker(self._database, self._cve_queue,
+                                     self._analyzer_done_flag)  # for getting cve details
         # spawn tasks
         timer = Timer()
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
@@ -157,7 +158,7 @@ class WorkerFactory:
                     executor.submit(downloader.start, run_id, tmp_dir),
                     executor.submit(generator.start, run_id, tmp_dir),
                     executor.submit(scanner.start, run_id, tmp_dir),
-                    executor.submit(nvd_worker.start, run_id)
+                    executor.submit(vuln_worker.start, run_id)
                 ]
                 concurrent.futures.wait(futures)
 
