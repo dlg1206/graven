@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from mysql.connector import ProgrammingError, DatabaseError
 
 from db.database import MySQLDatabase, Table, JoinTable
-from logger import logger
+from shared.logger import logger
 
 """
 File: cve_breadcrumbs_database.py
@@ -74,18 +74,13 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         self._upsert(Table.DOMAIN, [('url', url)], [('run_id', run_id), ('last_crawled', last_crawled)])
 
-    def upsert_jar_and_grype_results(self, run_id: int, jar_url: str,
-                                     published_date: datetime,
-                                     cves: List[str],
-                                     last_scanned: datetime) -> None:
+    def upsert_jar(self, run_id: int, jar_url: str, published_date: datetime) -> None:
         """
         Add a jar to the database and any associated CVEs
 
         :param run_id: ID of the jar and scan was done in
         :param jar_url: URL of jar
         :param published_date: Date when the jar was published
-        :param cves: List of CVEs associated with the jar
-        :param last_scanned: Date last scanned with grype (Default: now)
         """
         components = jar_url.replace(MAVEN_CENTRAL_ROOT, "").split("/")
         jar_id = components[-1]
@@ -96,11 +91,21 @@ class BreadcrumbsDatabase(MySQLDatabase):
             ('group_id', ".".join(components[:-3])),
             ('artifact_id', components[-3]),
             ('version', components[-2]),
-            ('publish_date', published_date),
-            ('last_scanned', last_scanned)
+            ('publish_date', published_date)
         ]
-        start_time = time.time()
         self._upsert(Table.JAR, [('jar_id', jar_id)], inserts)
+
+    def upsert_grype_results(self, run_id: int, jar_id: str, cves: List[str], last_scanned: str) -> None:
+        """
+        Add a jar to the database and any associated CVEs
+
+        :param run_id: ID of the jar and scan was done in
+        :param jar_id: id of jar
+        :param cves: List of CVEs associated with the jar
+        :param last_scanned: Date last scanned with grype (Default: now)
+        """
+        start_time = time.time()
+        self._upsert(Table.JAR, [('jar_id', jar_id)], [('last_scanned', last_scanned)])
         # add cves
         for cve_id in cves:
             self._upsert(Table.CVE, [('cve_id', cve_id)], [('run_id', run_id)])

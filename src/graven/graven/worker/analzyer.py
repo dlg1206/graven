@@ -1,0 +1,92 @@
+import json
+from queue import Queue, Empty
+from threading import Event
+
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase
+from qmodel.file import GrypeFile
+from qmodel.message import Message
+from shared.logger import logger
+from shared.utils import first_time_wait_for_tasks
+
+"""
+File: analyzer.py
+
+Description: Worker dedicated to parsing anchore output and writing data to the database
+
+@author Derek Garcia
+"""
+
+WRITE_TIMEOUT = 1
+
+
+class AnalyzerWorker:
+    def __init__(self, database: BreadcrumbsDatabase, analyze_queue: Queue[Message],
+                 scanner_done_flag: Event):
+        """
+        Create a new analyzer worker that constantly parses anchore output and saves data to the database
+
+        :param database: Database to save results to
+        :param analyze_queue: Queue of items to save to the database
+        :param scanner_done_flag: Flag to indicate the analyzer has finished running
+        """
+        # attempt to log in into the database
+        self._database = database
+        self._analyze_queue = analyze_queue
+        self._scanner_done_flag = scanner_done_flag
+        self._run_id = None
+
+    def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
+        # save results
+        with open(grype_file.file_path, "r") as file:
+            grype_data = json.load(file)
+        # get all cves
+        cve_ids = list({vuln["vulnerability"]["id"] for vuln in grype_data["matches"] if
+                        vuln["vulnerability"]["id"].startswith("CVE")})
+        logger.info(
+            f"Scan found {len(cve_ids)} CVE{'' if len(cve_ids) == 1 else 's'} in {grype_file.file_path}")
+
+        # save to db
+        self._database.upsert_grype_results(self._run_id, jar_id, cve_ids, grype_data['descriptor']['timestamp'])
+
+    def _analyze(self) -> None:
+        """
+        Start the analyzer worker
+        """
+        message = None
+        first_time_wait_for_tasks("Analyzer", self._analyze_queue,
+                                  self._scanner_done_flag)  # block until items to process
+        while not (self._scanner_done_flag.is_set() and self._analyze_queue.empty()):
+
+            try:
+                message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
+                self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
+                if message.grype_file.is_open:
+                    self._save_grype_results(message.jar_id, message.grype_file)
+                logger.info(f"Saved {message.jar_id}")
+            except Empty:
+                """
+                To prevent deadlocks, the forced timeout with throw this error
+                for another iteration of the loop to check conditions
+                """
+                continue
+            except Exception as e:
+                logger.fatal(e)
+            finally:
+                # remove any remaining files
+                if message:
+                    message.close()
+                self._analyze_queue.task_done()
+
+    def start(self, run_id: int) -> None:
+        """
+        Spawn and start the analyzer worker thread
+
+        :param run_id: ID of run
+        """
+        self._run_id = run_id
+        logger.info(f"Initializing analyzer . .")
+        # start the analyzer
+        logger.info(f"Starting analyzer")
+        self._analyze()
+        # done
+        logger.info("All data saved, exiting. . .")

@@ -9,8 +9,9 @@ import requests
 from requests import RequestException
 
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from logger import logger
-from shared.message import DownloadMessage, GeneratorMessage
+from qmodel.file import JarFile
+from qmodel.message import Message
+from shared.logger import logger
 from shared.utils import Timer, first_time_wait_for_tasks
 
 """
@@ -27,8 +28,8 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 
 class DownloaderWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 download_queue: Queue[DownloadMessage],
-                 generator_queue: Queue[GeneratorMessage],
+                 download_queue: Queue[Message],
+                 generator_queue: Queue[Message],
                  crawler_done_flag: Event,
                  downloader_done_flag: Event,
                  max_concurrent_requests: int,
@@ -57,56 +58,57 @@ class DownloaderWorker:
         self._downloaded_jars = 0
         self._run_id = None
 
-    def _download_jar(self, jar_url: str, download_path: str) -> None:
+    def _download_jar(self, jar_url: str, jar_file: JarFile) -> None:
         """
         Download jar
 
         :param jar_url: URL of jar to be downloaded
-        :param download_path: Path to download jar to
+        :param jar_file: jar file Path to download jar to
+        :return: Downloaded JarFile metadata object
         """
         start_time = time.time()
         with requests.get(jar_url) as response:
             response.raise_for_status()
-            with open(download_path, "wb") as file:
+            with open(jar_file.file_path, "wb") as file:
                 file.write(response.content)
         logger.debug_msg(f"Downloaded {jar_url} in {time.time() - start_time:.2f}s")
         self._downloaded_jars += 1
 
-    def _process_task(self, download_message: DownloadMessage, download_dir_path: str) -> None:
+    def _process_message(self, message: Message, download_dir_path: str) -> None:
         """
         Wrapper task for submitting to thread pool
         Downloads jar to file and updates the analyze queue
 
-        :param download_message: Message with download data
+        :param message: Message with download data
         :param download_dir_path: Path to directory to download jar to
         """
-        generator_msg = GeneratorMessage(download_message.jar_url, download_message.jar_publish_date,
-                                         self._download_limit, download_dir_path)
         try:
-            self._download_jar(generator_msg.url, generator_msg.get_file_path())
-            self._generator_queue.put(generator_msg)
+            # init jar
+            message.open_jar_file(download_dir_path, self._download_limit)
+            self._download_jar(message.jar_url, message.jar_file)
+            self._generator_queue.put(message)
         except RequestException as e:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e,
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
                                          comment="Failed to download jar",
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e,
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
                                          "Failed to download jar")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, download_message.jar_url, e, "Error in download")
-            generator_msg.cleanup()  # rm and release if anything goes wrong
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e, "Error in download")
+            message.close()  # rm and release if anything goes wrong
         finally:
             self._download_queue.task_done()
 
-    def _download(self, download_dir_path: str) -> None:
+    def _download(self, work_dir_path: str) -> None:
         """
         Continuously download jars until the download urls is empty and retries exceeded
 
-        :param download_dir_path: Path to directory to download jars to
+        :param work_dir_path: Path to directory to download jars to
         """
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
@@ -121,11 +123,9 @@ class DownloaderWorker:
                         logger.warn("Failed to acquire lock; retrying. . .")
                         continue
 
-                    download_msg = self._download_queue.get_nowait()
-                    self._heartbeat.beat(self._download_queue.qsize())
-
+                    message = self._download_queue.get_nowait()
                     # download jar
-                    tasks.append(exe.submit(self._process_task, download_msg, download_dir_path))
+                    tasks.append(exe.submit(self._process_message, message, work_dir_path))
 
                 except queue.Empty:
                     """
@@ -148,23 +148,16 @@ class DownloaderWorker:
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
 
-    def start(self, run_id: int, download_dir_path: str) -> None:
+    def start(self, run_id: int, work_dir_path: str) -> None:
         """
         Spawn and start the downloader worker thread
 
         :param run_id: ID of run
-        :param download_dir_path: Path to directory to download jars to
+        :param work_dir_path: Path to directory to download jars to
         """
         logger.info(f"Initializing downloader. . .")
         self._run_id = run_id
-        self._download(download_dir_path)
+        self._download(work_dir_path)
         # done
         self._timer.stop()
         self.print_statistics_message()
-
-    @property
-    def downloader_done_flag(self) -> Event:
-        """
-        :return: Downloader done flag
-        """
-        return self._downloader_done_flag

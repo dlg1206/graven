@@ -5,14 +5,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from queue import LifoQueue, Queue
 from threading import Event
-from typing import Tuple, List
+from typing import List
 
 import requests
 from requests import RequestException
 
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
-from logger import logger
-from shared.message import DownloadMessage
+from qmodel.message import Message
+from shared.logger import logger
 from shared.utils import Timer
 
 """
@@ -31,7 +31,7 @@ SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependenci
 
 class CrawlerWorker:
     def __init__(self, database: BreadcrumbsDatabase,
-                 download_queue: Queue[DownloadMessage],
+                 download_queue: Queue[Message],
                  crawler_done_flag: Event,
                  update: bool,
                  max_concurrent_requests: int):
@@ -79,8 +79,8 @@ class CrawlerWorker:
                     continue
 
                 # save jar url and timestamp
-                dm = DownloadMessage(download_url, datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
-                self._download_queue.put(dm)
+                message = Message(download_url, datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
+                self._download_queue.put(message)
                 logger.debug_msg(f"Found jar url | {download_url}")
 
     def _download_html(self, url: str) -> str:
@@ -117,14 +117,6 @@ class CrawlerWorker:
         self._parse_html(url, self._download_html(url))
         self._crawl_queue.task_done()
 
-    def print_statistics_message(self) -> None:
-        """
-        Prints statistics about the crawler
-        """
-        logger.info(f"Crawler completed in {self._timer.format_time()}")
-        logger.info(
-            f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
-
     def _crawl(self, root_url: str, seed_urls: List[str] = None) -> None:
         """
        Continuously download and parse urls until the crawl urls is empty and retries exceeded
@@ -144,7 +136,6 @@ class CrawlerWorker:
                         self._crawl_queue.task_done()
                         continue
                     tasks.append(exe.submit(self._process_url, url))
-                    self._heartbeat.beat(self._crawl_queue.qsize())
                 except queue.Empty:
                     # wait for task to finish to be absolutely sure no urls left
                     logger.warn(f"Queue is empty, ensuring tasks are done. . .")
@@ -169,6 +160,14 @@ class CrawlerWorker:
         logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
         concurrent.futures.wait(tasks)
 
+    def print_statistics_message(self) -> None:
+        """
+        Prints statistics about the crawler
+        """
+        logger.info(f"Crawler completed in {self._timer.format_time()}")
+        logger.info(
+            f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
+
     def start(self, run_id: int, root_url: str, seed_urls: List[str] = None) -> None:
         """
         Spawn and start the crawler worker thread
@@ -190,17 +189,3 @@ class CrawlerWorker:
         self._crawler_done_flag.set()  # signal no more urls
         self._timer.stop()
         self.print_statistics_message()
-
-    @property
-    def download_queue(self) -> Queue[Tuple[str, str]]:
-        """
-        :return: URL download queue
-        """
-        return self._download_queue
-
-    @property
-    def crawler_done_flag(self) -> Event:
-        """
-        :return: Crawler done flag
-        """
-        return self._crawler_done_flag

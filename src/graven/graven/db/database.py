@@ -9,6 +9,8 @@ from mysql.connector import pooling, IntegrityError
 from mysql.connector.cursor import MySQLCursor
 from mysql.connector.pooling import PooledMySQLConnection
 
+from shared.logger import logger
+
 """
 File: database.py
 Description: MySQL database interface for handling cve data

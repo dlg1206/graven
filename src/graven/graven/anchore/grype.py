@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 import requests
 import yaml
 
-from logger import logger
+from shared.logger import logger
 
 """
 File: grype.py
@@ -173,22 +173,22 @@ class Grype:
 
         logger.info(f"grype database is up to date")
 
-    def scan(self, jar_path: str, out_path: str) -> int:
+    def scan(self, file_path: str, out_path: str) -> int:
         """
-        Scan jar and save results to file
+        Scan jar or sbom and save results to file
 
-        :param jar_path: Path to jar to scan
+        :param file_path: Path to jar or sbom to scan
         :param out_path: Path to save JSON result to
         :raises GrypeScanFailure: If grype fails to scan
         :return: Return code of the operation
         """
         start_time = time.time()
-        result = subprocess.run([self._bin_path, "--by-cve", "-f", "negligible", f"-o json={out_path}", jar_path],
+        result = subprocess.run([self._bin_path, "--by-cve", "-f", "negligible", f"-o json={out_path}", file_path],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         # non-zero, non-one error
         if result.returncode and result.returncode != 1:
-            raise GrypeScanFailure(jar_path, result.stderr.decode())
-        logger.debug_msg(f"Scanned {jar_path} in {time.time() - start_time:.2f}s")
+            raise GrypeScanFailure(file_path, result.stderr.decode())
+        logger.debug_msg(f"Scanned {file_path} in {time.time() - start_time:.2f}s")
         return result.returncode
 
     def get_version(self) -> str:

@@ -3,7 +3,7 @@ import platform
 import subprocess
 import time
 
-from logger import logger
+from shared.logger import logger
 
 """
 File: syft.py

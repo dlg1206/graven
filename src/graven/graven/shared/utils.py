@@ -3,7 +3,7 @@ import time
 from queue import Queue, Empty
 from threading import Event
 
-from logger import logger
+from shared.logger import logger
 
 """
 File: utils.py
