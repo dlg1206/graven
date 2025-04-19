@@ -6,13 +6,13 @@
 # install syft
 FROM alpine/curl:8.12.0 AS syft_download
 # latest as of writing
-ARG SYFT_VERSION=v1.22.0
+ENV SYFT_VERSION=v1.22.0
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin $SYFT_VERSION
 
 # install grype
 FROM alpine/curl:8.12.0 AS grype_download
 # latest as of writing
-ARG GRYPE_VERSION=v0.91.0
+ENV GRYPE_VERSION=v0.91.0
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin $GRYPE_VERSION
 
 FROM python:3.12.9-alpine3.21 AS graven

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from math import floor
 from queue import Queue, Empty
 from threading import Event
+from datetime import datetime
 
 import zstandard as zstd
 
@@ -141,7 +142,8 @@ class AnalyzerWorker:
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
         # save timestamp
-        self._database.upsert_jar_last_scan(self._run_id, jar_id, grype_data['descriptor']['timestamp'])
+        last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp'].replace("Z", "")[:26])
+        self._database.upsert_jar_last_scan(self._run_id, jar_id, last_scanned)
 
     def _process_message(self, message: Message) -> None:
         """

@@ -152,7 +152,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         ]
         self._upsert(Table.JAR, [('jar_id', jar_id)], inserts)
 
-    def upsert_jar_last_scan(self, run_id: int, jar_id: str, last_scanned: str) -> None:
+    def upsert_jar_last_scan(self, run_id: int, jar_id: str, last_scanned: datetime) -> None:
         """
         Update when the last time the jar's SBOM was scanned with grype
 
