@@ -1,6 +1,7 @@
 import concurrent
 import os
 from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 from queue import Queue, Empty
 from threading import Event
 
@@ -18,7 +19,8 @@ Description: Use syft to generate SBOMs
 @author Derek Garcia
 """
 
-DEFAULT_MAX_GENERATOR_THREADS = os.cpu_count() / 2  # AnalyzerWorker gets other half of threads
+# ScannerWorker and AnalyzerWorker get the rest of the threads
+DEFAULT_MAX_GENERATOR_THREADS = ceil(os.cpu_count() / 3)
 
 
 class GeneratorWorker:
@@ -38,7 +40,7 @@ class GeneratorWorker:
         :param analyze_queue: Queue of SBOM details to analyze
         :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
         :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
-        :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count)
+        :param max_threads: Max number of concurrent requests allowed to be made at once (default:ceil(os.cpu_count() / 3))
         """
         self._database = database
         self._syft = syft

@@ -5,6 +5,7 @@ from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
 from shared.logger import Level, logger
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
+from worker.analzyer import DEFAULT_MAX_ANALYZER_THREADS
 from worker.downloader import DEFAULT_MAX_JAR_LIMIT
 from worker.generator import DEFAULT_MAX_GENERATOR_THREADS
 from worker.scanner import DEFAULT_MAX_SCANNER_THREADS
@@ -39,9 +40,10 @@ def _execute(args: Namespace) -> None:
     downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
     generator = worker_factory.create_generator_worker(args.max_generator_threads, args.syft_path)
     scanner = worker_factory.create_scanner_worker(args.max_scanner_threads, args.grype_path, args.grype_db_source)
+    analyzer = worker_factory.create_analyzer_worker(args.max_analyzer_threads)
 
     # start job
-    worker_factory.run_workers(crawler, downloader, generator, scanner, args.root_url, seed_urls)
+    worker_factory.run_workers(crawler, downloader, generator, scanner, analyzer, args.root_url, seed_urls)
 
 
 def _create_parser() -> ArgumentParser:
@@ -112,7 +114,8 @@ def _create_parser() -> ArgumentParser:
     scanner_group.add_argument("--max-scanner-threads",
                                metavar="<number of the threads>",
                                type=int,
-                               help=f"Max number of threads allowed to be used to scan SBOMs. Increase with caution (Default: {DEFAULT_MAX_SCANNER_THREADS})",
+                               help=f"Max number of threads allowed to be used to scan SBOMs. Increase with caution ("
+                                    f"Default: {DEFAULT_MAX_SCANNER_THREADS})",
                                default=DEFAULT_MAX_SCANNER_THREADS)
 
     scanner_group.add_argument("--grype-path",
@@ -126,6 +129,12 @@ def _create_parser() -> ArgumentParser:
                                type=str,
                                help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
 
+    analyzer_group = parser.add_argument_group("Analyzer Options")
+    analyzer_group.add_argument("--max-analyzer-threads",
+                                metavar="<number of the threads>",
+                                type=int,
+                                help=f"Max number of threads allowed to be used to parse and upload Anchore results. Increase with caution (Default: {DEFAULT_MAX_ANALYZER_THREADS})",
+                                default=DEFAULT_MAX_ANALYZER_THREADS)
     return parser
 
 

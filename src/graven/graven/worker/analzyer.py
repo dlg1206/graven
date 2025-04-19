@@ -1,8 +1,12 @@
+import concurrent
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+from math import floor
 from queue import Queue, Empty
 from threading import Event
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase
+from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from qmodel.file import GrypeFile
 from qmodel.message import Message
 from shared.logger import logger
@@ -17,22 +21,27 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 """
 
 WRITE_TIMEOUT = 1
+# GeneratorWorker and ScannerWorker get the rest of the threads
+DEFAULT_MAX_ANALYZER_THREADS = floor(os.cpu_count() / 3)
 
 
 class AnalyzerWorker:
     def __init__(self, database: BreadcrumbsDatabase, analyze_queue: Queue[Message],
-                 scanner_done_flag: Event):
+                 scanner_done_flag: Event, max_threads: int):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
         :param database: Database to save results to
         :param analyze_queue: Queue of items to save to the database
         :param scanner_done_flag: Flag to indicate the analyzer has finished running
+        :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
         """
         # attempt to log in into the database
         self._database = database
         self._analyze_queue = analyze_queue
         self._scanner_done_flag = scanner_done_flag
+        self._max_threads = max_threads
+
         self._run_id = None
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
@@ -48,41 +57,67 @@ class AnalyzerWorker:
         # save to db
         self._database.upsert_grype_results(self._run_id, jar_id, cve_ids, grype_data['descriptor']['timestamp'])
 
+    def _process_message(self, message: Message) -> None:
+        """
+        Parse syft and grype (if available) files and save it to the database
+
+        :param message: Message with all data to parse and save
+        """
+
+        # scan
+        try:
+            self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
+            if message.grype_file.is_open:
+                self._save_grype_results(message.jar_id, message.grype_file)
+            logger.info(f"Saved {message.jar_id}")
+        except Exception as e:
+            logger.error_exp(e)
+            self._database.log_error(self._run_id, Stage.ANALYZER, message.jar_url, e, "error when parsing results")
+            message.close()
+        finally:
+            # remove any remaining files
+            if message:
+                message.close()
+            self._analyze_queue.task_done()
+
     def _analyze(self) -> None:
         """
         Start the analyzer worker
         """
         message = None
-        first_time_wait_for_tasks("Analyzer", self._analyze_queue,
-                                  self._scanner_done_flag)  # block until items to process
-        while not (self._scanner_done_flag.is_set() and self._analyze_queue.empty()):
+        tasks = []
+        with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
+            first_time_wait_for_tasks("Analyzer", self._analyze_queue,
+                                      self._scanner_done_flag)  # block until items to process
+            while not (self._scanner_done_flag.is_set() and self._analyze_queue.empty()):
 
-            try:
-                message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
-                self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
-                if message.grype_file.is_open:
-                    self._save_grype_results(message.jar_id, message.grype_file)
-                logger.info(f"Saved {message.jar_id}")
-            except Empty:
-                """
-                To prevent deadlocks, the forced timeout with throw this error
-                for another iteration of the loop to check conditions
-                """
-                continue
-            except Exception as e:
-                logger.fatal(e)
-            finally:
-                # remove any remaining files
-                if message:
-                    message.close()
-                self._analyze_queue.task_done()
+                try:
+                    message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
+                    # scan
+                    tasks.append(exe.submit(self._process_message, message))
+                except Empty:
+                    """
+                    To prevent deadlocks, the forced timeout with throw this error
+                    for another iteration of the loop to check conditions
+                    """
+                    continue
+                except Exception as e:
+                    logger.error_exp(e)
+                    url = None
+                    if message:
+                        url = message.jar_url
+                        message.close()
+
+                    self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
+        logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
+        concurrent.futures.wait(tasks)
 
     def start(self, run_id: int) -> None:
         """
-        Spawn and start the analyzer worker thread
+            Spawn and start the analyzer worker thread
 
-        :param run_id: ID of run
-        """
+            :param run_id: ID of run
+            """
         self._run_id = run_id
         logger.info(f"Initializing analyzer . .")
         # start the analyzer

@@ -98,9 +98,10 @@ class WorkerFactory:
         """
         Create a new scanner worker
 
-        :param max_threads: Max number of concurrent requests allowed to be made at once
+        :param max_threads: Max number of concurrent scans to be made at once
         :param grype_path: Path to grype bin (Default: assume on path or in pwd)
         :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
+        :return: ScannerWorker
         """
         # init grype
         if grype_path:
@@ -110,8 +111,18 @@ class WorkerFactory:
         return ScannerWorker(self._database, grype, self._scan_queue, self._analyze_queue,
                              self._generator_done_flag, self._scan_done_flag, max_threads)
 
+    def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
+        """
+        Create a new analyzer worker
+
+        :param max_threads: Max number of threads to parse anchore results
+        :return: AnalyzerWorker
+        """
+        return AnalyzerWorker(self._database, self._analyze_queue, self._scan_done_flag, max_threads)
+
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
-                    scanner: ScannerWorker, root_url: str = None, seed_urls: List[str] = None) -> None:
+                    scanner: ScannerWorker, analyzer: AnalyzerWorker, root_url: str = None,
+                    seed_urls: List[str] = None) -> None:
         """
         Run all workers until completed
 
@@ -119,14 +130,14 @@ class WorkerFactory:
         :param downloader: Downloader Worker
         :param generator: Generator Worker
         :param scanner: Scanner Worker
+        :param analyzer: Analyzer Worker
         :param root_url: Root URL to start at
         :param seed_urls: List of URLs to continue crawling
         """
         logger.info("Launching Graven worker threads...")
-        analyzer = AnalyzerWorker(self._database, self._analyze_queue, self._scan_done_flag)
         # spawn tasks
         timer = Timer()
-        with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory(prefix='graven_') as tmp_dir:
             timer.start()
             run_id = self._database.log_run_start(scanner.grype.get_version(), scanner.grype.db_source)
             with ThreadPoolExecutor(max_workers=5) as executor:

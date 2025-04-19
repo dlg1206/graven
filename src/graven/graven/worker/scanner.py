@@ -1,6 +1,7 @@
 import concurrent
 import os
 from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 from queue import Queue, Empty
 from threading import Event
 
@@ -17,8 +18,8 @@ Description: Use grype to scan jars to find CVEs
 
 @author Derek Garcia
 """
-
-DEFAULT_MAX_SCANNER_THREADS = os.cpu_count() / 2  # GeneratorWorker gets other half of threads
+# GeneratorWorker and AnalyzerWorker get the rest of the threads
+DEFAULT_MAX_SCANNER_THREADS = ceil(os.cpu_count() / 3)
 
 
 class ScannerWorker:
@@ -38,7 +39,7 @@ class ScannerWorker:
         :param analyzer_queue: Queue of results to eventually write to the database
         :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
         :param scanner_done_flag: Flag to indicate to rest of pipeline that the scanner is finished
-        :param max_threads: Max number of concurrent requests allowed to be made at once (default: cpu count / 2)
+        :param max_threads: Max number of grype scans that can be made at once (default: ceil(os.cpu_count() / 3))
         """
         self._database = database
         self._grype = grype

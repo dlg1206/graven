@@ -22,6 +22,7 @@ class File:
         :param file_ext: Extension of the file
         """
         self._file_path = f"{work_dir}{os.sep}{file_name.replace(".jar", file_ext)}"
+        self._open = True
 
     def close(self) -> None:
         """
@@ -35,6 +36,7 @@ class File:
             os.remove(self._file_path)
         except Exception as e:
             logger.error_exp(e)
+        self._open = False
 
     @property
     def file_path(self) -> str:
@@ -43,11 +45,12 @@ class File:
         """
         return self._file_path
 
+    @property
     def is_open(self) -> bool:
         """
         :return: whether this file is exists or not
         """
-        return os.path.exists(self._file_path)
+        return self._open
 
 
 class JarFile(File):
