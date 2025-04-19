@@ -112,15 +112,19 @@ class BreadcrumbsDatabase(MySQLDatabase):
             self._upsert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)], [('run_id', run_id)])
         logger.debug_msg(f"Processed {jar_id} and {len(cves)} CVEs in {time.time() - start_time:.2f}s")
 
-    def log_run_start(self, grype_version: str, grype_db_source: str) -> int:
+    def log_run_start(self, syft_version: str, grype_version: str, grype_db_source: str) -> int:
         """
         Log a start of a run
 
+        :param syft_version: Version of syft used
         :param grype_version: Version of grype used
         :param grype_db_source: URL source of grype used
         :return: run id
         """
-        run_id = self._insert(Table.RUN_LOG, [('grype_version', grype_version), ('grype_db_source', grype_db_source)])
+        run_id = self._insert(Table.RUN_LOG, [
+            ('syft_version', syft_version),
+            ('grype_version', grype_version),
+            ('grype_db_source', grype_db_source)])
         return run_id
 
     def log_run_end(self, run_id: int, run_end_time: datetime) -> None:

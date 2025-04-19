@@ -143,6 +143,9 @@ class GeneratorWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    @property
-    def grype(self) -> Syft:
-        return self._syft
+
+    def get_syft_version(self) -> str:
+        """
+        :return: Version of syft being used by this generator
+        """
+        return self._syft.get_version()

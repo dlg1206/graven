@@ -148,6 +148,14 @@ class ScannerWorker:
         self._timer.stop()
         self.print_statistics_message()
 
-    @property
-    def grype(self) -> Grype:
-        return self._grype
+    def get_grype_version(self) -> str:
+        """
+        :return: Version of grype being used by this generator
+        """
+        return self._grype.get_version()
+
+    def get_grype_db_source(self) -> str:
+        """
+        :return: URL of grype database source
+        """
+        return self._grype.db_source
