@@ -36,13 +36,13 @@ class GrypeScanFailure(RuntimeError):
 
 
 class GrypeDatabaseInstallFailure(RuntimeError):
-    def __init__(self, grype_db_url: str, error_code: int):
+    def __init__(self, grype_db_url: str, error_code: int, stderr: str):
         """
         Create new install failure
 
         :param grype_db_url: URL of database attempted to install
         """
-        super().__init__(f"{error_code} | Failed to install '{grype_db_url}'")
+        super().__init__(f"{error_code} | Failed to install '{grype_db_url}' | {stderr}")
 
 
 class Grype:
@@ -136,11 +136,11 @@ class Grype:
                     file.write(response.content)
             # install db
             logger.info(f"Downloaded grype database. Installing database. . .")
-            db_status = subprocess.run([f"{self._bin_path}", "db", "import", grype_db_tarball],
-                                       stdout=subprocess.DEVNULL,
-                                       stderr=subprocess.DEVNULL).returncode
-            if db_status:
-                raise GrypeDatabaseInstallFailure(self._db_source_url, db_status)
+            result = subprocess.run([f"{self._bin_path}", "db", "import", grype_db_tarball],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE, encoding='utf-8')
+            if result.returncode:
+                raise GrypeDatabaseInstallFailure(self._db_source_url, result.returncode, result.stderr)
         logger.info(f"Installed database")
 
         # cache download
@@ -161,8 +161,10 @@ class Grype:
             logger.warn("grype database needs to be updated!")
             logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
             logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
-            subprocess.run([f"{self._bin_path}", "db", "update"], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+            result = subprocess.run([f"{self._bin_path}", "db", "update"], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE, encoding='utf-8')
+            if result.returncode:
+                raise GrypeDatabaseInstallFailure("latest", result.returncode, result.stderr)
             logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
 
             # remove the cached source if it exists
