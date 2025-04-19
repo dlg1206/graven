@@ -24,9 +24,6 @@ Description: Crawl maven central repo for urls
 
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
-# non-jars that can be skipped
-SKIP_JAR_SUFFIXES = ("sources", "javadoc", "javadocs", "tests", "with-dependencies",
-                     "shaded", "minimal", "all", "android", "native", "no-deps", "bin", "api", "sp", "full")
 
 
 class CrawlerWorker:
@@ -71,7 +68,7 @@ class CrawlerWorker:
                 logger.debug_msg(f"Found crawl url | {crawl_url}")
                 continue
             # new download url
-            if match.group(2) and not match.group(2).removesuffix(".jar").lower().endswith(SKIP_JAR_SUFFIXES):
+            if match.group(2):
                 download_url = f"{url}{match.group(2)}"
                 # Skip if seen the url and not updating
                 if not self._update and self._database.has_seen_jar_url(download_url):
