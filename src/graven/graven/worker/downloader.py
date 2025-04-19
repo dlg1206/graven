@@ -116,7 +116,7 @@ class DownloaderWorker:
                                       self._crawler_done_flag)  # block until items to process
             self._timer.start()
             # run while the crawler is still running or still tasks to process
-            while not (self._crawler_done_flag.is_set() and self._download_queue.empty()):
+            while True:
                 try:
                     # limit the max number of jars on system at one time
                     if not self._download_limit.acquire(timeout=30):
@@ -133,7 +133,9 @@ class DownloaderWorker:
                     for another iteration of the loop to check conditions
                     """
                     self._download_limit.release()  # release to try again
-                    continue
+                    # exit if no new tasks and completed all remaining
+                    if self._crawler_done_flag.is_set() and self._download_queue.empty():
+                        break
 
         logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
         concurrent.futures.wait(tasks)

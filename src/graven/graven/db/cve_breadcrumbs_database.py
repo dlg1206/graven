@@ -30,6 +30,7 @@ class Stage(Enum):
     GENERATOR = "GENER"
     SCANNER = "SCANR"
     ANALYZER = "ALYZR"
+    NVD = "NVDAP"
 
 
 class BreadcrumbsDatabase(MySQLDatabase):
@@ -101,7 +102,7 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         self._upsert(Table.ARTIFACT, [('purl', purl)], [('run_id', run_id)] + list(kwargs.items()))
 
-    def upsert_cve(self, run_id: int, cve_id: str, **kwargs: str | int | datetime) -> None:
+    def upsert_cve(self, run_id: int, cve_id: str, **kwargs: str | int | float | datetime) -> None:
         """
         Upsert cve to the database
 
@@ -151,6 +152,17 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param sbom_blob: compressed binary
         """
         self._upsert(Table.SBOM, [('jar_id', jar_id)], [('run_id', run_id), ('sbom', sbom_blob)])
+
+    def associate_cve_and_cwe(self, cve_id: str, cwe_id: str) -> None:
+        """
+        Save a cve and cwe that impacts it
+        CVE must exist in db prior, but CWE is updated if dne
+
+        :param cve_id: id of cve
+        :param cwe_id: id of cwe
+        """
+        self._insert(Table.CWE, [('cwe_id', cwe_id)])
+        self._insert(JoinTable.CVE__CWE, [('cve_id', cve_id), ('cwe_id', cwe_id)])
 
     def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
         """

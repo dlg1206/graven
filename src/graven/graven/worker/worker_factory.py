@@ -16,6 +16,7 @@ from worker.analzyer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
+from worker.nvd import NVDWorker
 from worker.scanner import ScannerWorker
 
 """
@@ -35,9 +36,6 @@ class WorkerFactory:
         # attempt to log in into the database
         self._database = BreadcrumbsDatabase()
 
-        # shared scribe objects
-        self._analyze_queue: Queue[Message] = Queue()
-
         # shared crawler objects
         self._crawler_done_flag = Event()
 
@@ -52,6 +50,13 @@ class WorkerFactory:
         # shared scanner objects
         self._scan_queue: Queue[Message] = Queue()
         self._scan_done_flag = Event()
+
+        # shared analyzer objects
+        self._analyze_queue: Queue[Message] = Queue()
+        self._analyzer_done_flag = Event()
+
+        # shared nvd objects
+        self._cve_queue: Queue[str] = Queue()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update: bool) -> CrawlerWorker:
         """
@@ -118,7 +123,8 @@ class WorkerFactory:
         :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
-        return AnalyzerWorker(self._database, self._analyze_queue, self._scan_done_flag, max_threads)
+        return AnalyzerWorker(self._database, self._analyze_queue, self._cve_queue,
+                              self._scan_done_flag, self._analyzer_done_flag, max_threads)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, root_url: str = None,
@@ -135,19 +141,23 @@ class WorkerFactory:
         :param seed_urls: List of URLs to continue crawling
         """
         logger.info("Launching Graven worker threads...")
+        nvd_worker = NVDWorker(self._database, self._cve_queue, self._analyzer_done_flag)  # for getting cve details
         # spawn tasks
         timer = Timer()
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             timer.start()
-            run_id = self._database.log_run_start(generator.get_syft_version(), scanner.get_grype_version(),
+            run_id = self._database.log_run_start(generator.get_syft_version(),
+                                                  scanner.get_grype_version(),
                                                   scanner.get_grype_db_source())
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            # start all workers
+            with ThreadPoolExecutor(max_workers=6) as executor:
                 futures = [
                     executor.submit(analyzer.start, run_id),
                     executor.submit(crawler.start, run_id, root_url if root_url else seed_urls.pop(), seed_urls),
                     executor.submit(downloader.start, run_id, tmp_dir),
                     executor.submit(generator.start, run_id, tmp_dir),
-                    executor.submit(scanner.start, run_id, tmp_dir)
+                    executor.submit(scanner.start, run_id, tmp_dir),
+                    executor.submit(nvd_worker.start, run_id)
                 ]
                 concurrent.futures.wait(futures)
 

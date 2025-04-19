@@ -99,7 +99,7 @@ class ScannerWorker:
             self._timer.start()
             # run while the generator is still running or still tasks to process
             message = None
-            while not (self._generator_done_flag.is_set() and self._scan_queue.empty()):
+            while True:
 
                 try:
                     message = self._scan_queue.get_nowait()
@@ -110,7 +110,9 @@ class ScannerWorker:
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    continue
+                    # exit if no new tasks and completed all remaining
+                    if self._generator_done_flag.is_set() and self._scan_queue.empty():
+                        break
                 except Exception as e:
                     logger.error_exp(e)
                     url = None

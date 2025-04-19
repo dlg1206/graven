@@ -28,19 +28,25 @@ DEFAULT_MAX_ANALYZER_THREADS = floor(os.cpu_count() / 3)
 
 
 class AnalyzerWorker:
-    def __init__(self, database: BreadcrumbsDatabase, analyze_queue: Queue[Message],
-                 scanner_done_flag: Event, max_threads: int):
+    def __init__(self, database: BreadcrumbsDatabase,
+                 analyze_queue: Queue[Message],
+                 cve_queue: Queue[str],
+                 scanner_done_flag: Event,
+                 analyzer_done_flag: Event,
+                 max_threads: int):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
         :param database: Database to save results to
         :param analyze_queue: Queue of items to save to the database
-        :param scanner_done_flag: Flag to indicate the analyzer has finished running
+        :param scanner_done_flag: Flag to indicate the scanner has finished running
         :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
         """
         self._database = database
         self._analyze_queue = analyze_queue
+        self._cve_queue = cve_queue
         self._scanner_done_flag = scanner_done_flag
+        self._analyzer_done_flag = analyzer_done_flag
         self._max_threads = max_threads
 
         self._run_id = None
@@ -61,6 +67,12 @@ class AnalyzerWorker:
         logger.info(f"Compressed and saved '{syft_file.file_path}'")
 
     def _save_dependency_artifacts(self, jar_id: str, syft_file: SyftFile) -> None:
+        """
+        Parse syft SBOM and save direct dependency artifact information
+
+        :param jar_id: Jar ID SBOM belongs to
+        :param syft_file: Syft file metadata with path to sbom file
+        """
         with open(syft_file.file_path, 'r') as f:
             syft_data = json.load(f)
 
@@ -123,6 +135,8 @@ class AnalyzerWorker:
             else:
                 self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
+                # send to nvd api to get details
+                self._cve_queue.put(vid)
 
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
@@ -167,6 +181,7 @@ class AnalyzerWorker:
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             first_time_wait_for_tasks("Analyzer", self._analyze_queue,
                                       self._scanner_done_flag)  # block until items to process
+            # while the scanner is still running or still tasks to process
             while not (self._scanner_done_flag.is_set() and self._analyze_queue.empty()):
 
                 try:
@@ -189,6 +204,7 @@ class AnalyzerWorker:
                     self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
         logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
         concurrent.futures.wait(tasks)
+        self._analyzer_done_flag.set()  # signal no tasks
 
     def start(self, run_id: int) -> None:
         """

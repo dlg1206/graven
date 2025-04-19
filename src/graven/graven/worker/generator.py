@@ -95,7 +95,7 @@ class GeneratorWorker:
             self._timer.start()
             # run while the downloader is still running or still tasks to process
             message = None
-            while not (self._downloader_done_flag.is_set() and self._generator_queue.empty()):
+            while True:
                 try:
                     message = self._generator_queue.get_nowait()
                     # scan
@@ -105,7 +105,9 @@ class GeneratorWorker:
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    continue
+                    # exit if no new tasks and completed all remaining
+                    if self._downloader_done_flag.is_set() and self._generator_queue.empty:
+                        break
                 except Exception as e:
                     logger.error_exp(e)
                     url = None
