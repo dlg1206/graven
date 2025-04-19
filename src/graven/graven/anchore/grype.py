@@ -128,7 +128,7 @@ class Grype:
 
         logger.info(f"Downloading grype database, this may take a few minutes | {self._db_source_url}")
         with TemporaryDirectory() as tmp_dir:
-            grype_db_tarball = f"{tmp_dir}{os.sep}grype_db.tar.gz"
+            grype_db_tarball = f"{tmp_dir}{os.sep}{self._db_source_url.split('/')[-1]}"
             # download tarball
             with requests.get(self._db_source_url) as response:
                 response.raise_for_status()
