@@ -2,10 +2,10 @@ import concurrent
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from math import floor
 from queue import Queue, Empty
 from threading import Event
-from datetime import datetime
 
 import zstandard as zstd
 
@@ -25,7 +25,8 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 
 WRITE_TIMEOUT = 1
 # GeneratorWorker and ScannerWorker get the rest of the threads
-DEFAULT_MAX_ANALYZER_THREADS = floor(os.cpu_count() / 3)
+# careful increasing at risk over buffer overflow during compression
+DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
 class AnalyzerWorker:

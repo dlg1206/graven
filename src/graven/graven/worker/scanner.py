@@ -1,7 +1,6 @@
 import concurrent
 import os
 from concurrent.futures import ThreadPoolExecutor
-from math import ceil
 from queue import Queue, Empty
 from threading import Event
 
@@ -19,7 +18,7 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 # GeneratorWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_SCANNER_THREADS = ceil(os.cpu_count() / 3)
+DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2 + 1)
 
 
 class ScannerWorker:
