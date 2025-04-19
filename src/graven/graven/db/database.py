@@ -34,6 +34,7 @@ class Table(TableEnum):
     CWE = "cwe"
     JAR = "jar"
     SBOM = "sbom"
+    ARTIFACT = "artifact"
     DOMAIN = "domain"
     ERROR_LOG = "error_log"
     RUN_LOG = "run_log"
@@ -45,6 +46,7 @@ class JoinTable(TableEnum):
     """
     CVE__CWE = "cve__cwe"
     JAR__CVE = "jar__cve"
+    SBOM__ARTIFACT = "sbom__artifact"
 
 
 class MySQLDatabase:

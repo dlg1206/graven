@@ -72,6 +72,15 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         return len(self._select(Table.CVE, where_equals=[('cve_id', cve_id)])) != 0
 
+    def has_seen_purl(self, purl: str) -> bool:
+        """
+        Check if the database has seen these purls before
+
+        :param purl: purl to check
+        :return: True if seen, false otherwise
+        """
+        return len(self._select(Table.ARTIFACT, where_equals=[('purl', purl)])) != 0
+
     def save_domain_url_as_seen(self, run_id: int, url: str, last_crawled: datetime) -> None:
         """
         Save that this domain has been crawled
@@ -81,6 +90,16 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param last_crawled: Timestamp of when last crawled domain (Default: now)
         """
         self._upsert(Table.DOMAIN, [('url', url)], [('run_id', run_id), ('last_crawled', last_crawled)])
+
+    def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
+        """
+        Upsert a syft artifact to the database
+
+        :param run_id: Run id this was found in
+        :param purl: purl of artifact to update
+        :param kwargs: table key value pairs to update the database with
+        """
+        self._upsert(Table.ARTIFACT, [('purl', purl)], [('run_id', run_id)] + list(kwargs.items()))
 
     def upsert_cve(self, run_id: int, cve_id: str, **kwargs: str | int | datetime) -> None:
         """
@@ -124,6 +143,13 @@ class BreadcrumbsDatabase(MySQLDatabase):
         self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_scanned', last_scanned)])
 
     def upsert_sbom_blob(self, run_id: int, jar_id: str, sbom_blob: bytes) -> None:
+        """
+        Upsert a zstandard compressed syft json sbom to the database
+
+        :param run_id: Run id this was done
+        :param jar_id: id of the jar sbom belongs to
+        :param sbom_blob: compressed binary
+        """
         self._upsert(Table.SBOM, [('jar_id', jar_id)], [('run_id', run_id), ('sbom', sbom_blob)])
 
     def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
@@ -136,6 +162,19 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :param cve_id: id of cve
         """
         self._upsert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)], [('run_id', run_id)])
+
+    def associate_sbom_and_artifact(self, run_id: int, jar_id: str, purl: str, has_pom: bool) -> None:
+        """
+        Save an sbom and artifact that it contains
+        Jar / SBOM and purl must exist in db prior
+
+        :param run_id: ID of the jar and scan was done in
+        :param jar_id: id of jar the sbom is of
+        :param purl: purl of the artifact
+        :param has_pom: whether or not the artifact contains a pom file
+        """
+        self._upsert(JoinTable.SBOM__ARTIFACT, [('jar_id', jar_id), ('purl', purl)],
+                     [('run_id', run_id), ('has_pom', 1 if has_pom else 0)])
 
     def log_run_start(self, syft_version: str, grype_version: str, grype_db_source: str) -> int:
         """
