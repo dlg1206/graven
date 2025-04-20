@@ -68,50 +68,73 @@ pip install -r requirements.txt
 > the `--max-*-threads` flags to reduce the number of threads if it becomes an issue
 
 ```
-python3 graven -h
+python graven -h
 
-usage: graven [-h] [-l <log level>] [-s] [--root-url <starting url>] [--seed-urls-csv <path to csv>] [-u] [--max-concurrent-crawl-requests <number of requests>] [--max-concurrent-download-requests <number of requests>]
-              [--download-limit <number of jars>] [--max-generator-threads <number of the threads>] [--syft-path <absolute path to syft binary>] [--max-scanner-threads <number of the threads>]
-              [--grype-path <absolute path to grype binary>] [--grype-db-source <url of grype database to use>] [--max-analyzer-threads <number of the threads>]
+usage: graven [-h] [-l <log level>] [-s]
+              (--root-url <starting url> | --seed-urls-csv <path to csv>) [-u]
+              [--max-concurrent-crawl-requests <number of requests>]
+              [--max-concurrent-download-requests <number of requests>]
+              [--download-limit <number of jars>]
+              [--max-generator-threads <number of the threads>]
+              [--syft-path <absolute path to syft binary>]
+              [--max-scanner-threads <number of the threads>]
+              [--grype-path <absolute path to grype binary>]
+              [--grype-db-source <url of grype database to use>]
+              [--max-analyzer-threads <number of the threads>]
 
 Recursive and optimized crawler for scraping the Maven Central Repository
 
 options:
   -h, --help            show this help message and exit
   -l <log level>, --log-level <log level>
-                        Set log level (Default: INFO) (['INFO', 'DEBUG', 'ERROR'])
+                        Set log level (Default: INFO) (['INFO', 'DEBUG',
+                        'ERROR'])
   -s, --silent          Run in silent mode
+  -u, --update          Download jar and scan even if already in the database
+
+Input Options:
+  Only one flag is permitted
+
   --root-url <starting url>
                         Root URL to start crawler at
   --seed-urls-csv <path to csv>
-                        CSV file of root urls to restart the crawler at once the current root url is exhausted
-  -u, --update          Download jar and scan even if already in the database
+                        CSV file of root urls to restart the crawler at once
+                        the current root url is exhausted
 
 Crawler Options:
   --max-concurrent-crawl-requests <number of requests>
-                        Max number of requests crawler can make at once (Default: 8)
+                        Max number of requests crawler can make at once
+                        (Default: 8)
 
 Downloader Options:
   --max-concurrent-download-requests <number of requests>
-                        Max number of downloads downloader can make at once (Default: 8)
+                        Max number of downloads downloader can make at once
+                        (Default: 8)
   --download-limit <number of jars>
-                        Max number of jars allowed to be to downloaded local at once (Default: 100)
+                        Max number of jars allowed to be to downloaded local
+                        at once (Default: 100)
 
 Generator Options:
   --max-generator-threads <number of the threads>
-                        Max number of threads allowed to be used to generate sboms. Increase with caution
+                        Max number of threads allowed to be used to generate
+                        sboms. Increase with caution
   --syft-path <absolute path to syft binary>
-                        Path to syft binary to use. By default, assumes syft is already on the PATH
+                        Path to syft binary to use. By default, assumes syft
+                        is already on the PATH
 
 Scanner Options:
   --max-scanner-threads <number of the threads>
-                        Max number of threads allowed to be used to scan SBOMs. Increase with caution
+                        Max number of threads allowed to be used to scan
+                        SBOMs. Increase with caution
   --grype-path <absolute path to grype binary>
-                        Path to Grype binary to use. By default, assumes grype is already on the PATH
+                        Path to Grype binary to use. By default, assumes grype
+                        is already on the PATH
   --grype-db-source <url of grype database to use>
-                        URL of specific grype database to use. To see the full list, run 'grype db list'
+                        URL of specific grype database to use. To see the full
+                        list, run 'grype db list'
 
 Analyzer Options:
   --max-analyzer-threads <number of the threads>
-                        Max number of threads allowed to be used to parse and upload Anchore results. Increase with caution
+                        Max number of threads allowed to be used to parse and
+                        upload Anchore results. Increase with caution
 ```

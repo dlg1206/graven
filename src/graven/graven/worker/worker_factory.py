@@ -127,8 +127,7 @@ class WorkerFactory:
                               self._scan_done_flag, self._analyzer_done_flag, max_threads)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
-                    scanner: ScannerWorker, analyzer: AnalyzerWorker, root_url: str = None,
-                    seed_urls: List[str] = None) -> int:
+                    scanner: ScannerWorker, analyzer: AnalyzerWorker, seed_urls: List[str]) -> int:
         """
         Run all workers until completed
 
@@ -137,8 +136,7 @@ class WorkerFactory:
         :param generator: Generator Worker
         :param scanner: Scanner Worker
         :param analyzer: Analyzer Worker
-        :param root_url: Root URL to start at
-        :param seed_urls: List of URLs to continue crawling
+        :param seed_urls: List of URLs to for crawler to search
         :return: Exit code
         """
         logger.info("Launching Graven worker threads...")
@@ -156,8 +154,7 @@ class WorkerFactory:
             with ThreadPoolExecutor(max_workers=6) as executor:
                 futures = [
                     executor.submit(lambda: _graceful_start(analyzer.start, run_id)),
-                    executor.submit(lambda: _graceful_start(crawler.start, run_id,
-                                                            root_url if root_url else seed_urls.pop(), seed_urls)),
+                    executor.submit(lambda: _graceful_start(crawler.start, run_id, seed_urls.pop(0), seed_urls)),
                     executor.submit(lambda: _graceful_start(downloader.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),

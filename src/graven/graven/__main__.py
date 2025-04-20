@@ -29,11 +29,12 @@ def _execute(args: Namespace) -> None:
     worker_factory = WorkerFactory()
 
     # parse seed urls if any
-    seed_urls = None
     if args.seed_urls_csv:
         with open(args.seed_urls_csv) as file:
             csv_reader = csv.reader(file)
             seed_urls = [row[0] for row in csv_reader]
+    else:
+        seed_urls = [args.root_url]
 
     # make workers
     crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests, args.update)
@@ -43,7 +44,7 @@ def _execute(args: Namespace) -> None:
     analyzer = worker_factory.create_analyzer_worker(args.max_analyzer_threads)
 
     # start job
-    exit_code = worker_factory.run_workers(crawler, downloader, generator, scanner, analyzer, args.root_url, seed_urls)
+    exit_code = worker_factory.run_workers(crawler, downloader, generator, scanner, analyzer, seed_urls)
     exit(exit_code)
 
 
@@ -68,12 +69,17 @@ def _create_parser() -> ArgumentParser:
                         help="Run in silent mode",
                         default=False)
     # start url
-    parser.add_argument("--root-url",
-                        metavar="<starting url>",
-                        help="Root URL to start crawler at")
-    parser.add_argument("--seed-urls-csv",
-                        metavar="<path to csv>",
-                        help="CSV file of root urls to restart the crawler at once the current root url is exhausted")
+    input_group = parser.add_argument_group(title="Input Options", description="Only one flag is permitted")
+    input_flags = input_group.add_mutually_exclusive_group(required=True)
+    input_flags.add_argument("--root-url",
+                             metavar="<starting url>",
+                             type=str,
+                             help="Root URL to start crawler at")
+    input_flags.add_argument("--seed-urls-csv",
+                             metavar="<path to csv>",
+                             type=str,
+                             help="CSV file of root urls to restart the crawler at once the current root url is "
+                                  "exhausted")
     parser.add_argument("-u", "--update",
                         action="store_true",
                         help="Download jar and scan even if already in the database")
