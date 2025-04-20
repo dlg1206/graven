@@ -65,16 +65,20 @@ class CVENotFoundError(IOError):
 
 
 class NVDMitreWorker:
-    def __init__(self, database: BreadcrumbsDatabase, cve_queue: Queue[str], analyzer_done_flag: Event):
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase, cve_queue: Queue[str],
+                 analyzer_done_flag: Event):
         """
         Create a new NVD and Mitre Worker
 
         'NVD_API_KEY' env variable is used if available
+
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param cve_queue: Queue of cves to process
         :param analyzer_done_flag: Flag to indicate the analyzer has finished running
 
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._cve_queue = cve_queue
         self._analyzer_done_flag = analyzer_done_flag
@@ -167,7 +171,8 @@ class NVDMitreWorker:
 
         # run while the analyzer is still running or still tasks to process
         nvd_result = None
-        while True:
+        while not self._stop_flag.is_set():
+            # logger.info(self._stop_flag.is_set())
             try:
                 cve_id = self._cve_queue.get(timeout=1)
                 # if new id, fetch and save results
@@ -205,8 +210,11 @@ class NVDMitreWorker:
 
                 self._database.log_error(self._run_id, Stage.NVD, url, e, "Failed during loop")
                 self._cve_queue.task_done()  # ensure task is marked even if failed to prevent deadlock
-
-        logger.warn(f"No more CVEs to query for. . .")
+        # log exit type
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+        else:
+            logger.warn(f"No more CVEs to query for. . .")
 
     def start(self, run_id: int) -> None:
         """

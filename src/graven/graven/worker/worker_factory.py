@@ -1,10 +1,9 @@
 import concurrent
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 from queue import Queue
 from tempfile import TemporaryDirectory
 from threading import Event
-from typing import List
+from typing import List, Callable, Any
 
 from anchore.grype import Grype
 from anchore.syft import Syft
@@ -22,7 +21,7 @@ from worker.scanner import ScannerWorker
 """
 File: worker_factory.py
 
-Description: Factory for coupling and generating graven workers
+Description: Factory for generating, coupling, and running graven workers
 
 @author Derek Garcia
 """
@@ -35,6 +34,7 @@ class WorkerFactory:
         """
         # attempt to log in into the database
         self._database = BreadcrumbsDatabase()
+        self._interrupt_stop_flag = Event()
 
         # shared crawler objects
         self._crawler_done_flag = Event()
@@ -67,7 +67,7 @@ class WorkerFactory:
         :return: CrawlerWorker
         """
 
-        return CrawlerWorker(self._database, self._download_queue,
+        return CrawlerWorker(self._interrupt_stop_flag, self._database, self._download_queue,
                              self._crawler_done_flag, update, max_concurrent_requests)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
@@ -78,7 +78,7 @@ class WorkerFactory:
         :param download_limit: Max number of jars to be downloaded at one time
         :return: DownloaderWorker
         """
-        return DownloaderWorker(self._database, self._download_queue, self._generator_queue,
+        return DownloaderWorker(self._interrupt_stop_flag, self._database, self._download_queue, self._generator_queue,
                                 self._crawler_done_flag, self._downloader_done_flag,
                                 max_concurrent_requests, download_limit)
 
@@ -95,7 +95,7 @@ class WorkerFactory:
             syft = Syft(syft_path)
         else:
             syft = Syft()
-        return GeneratorWorker(self._database, syft, self._generator_queue, self._scan_queue,
+        return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue,
                                self._downloader_done_flag, self._generator_done_flag, max_threads)
 
     def create_scanner_worker(self, max_threads: int, grype_path: str = None,
@@ -113,7 +113,7 @@ class WorkerFactory:
             grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
         else:
             grype = Grype(grype_db_source)
-        return ScannerWorker(self._database, grype, self._scan_queue, self._analyze_queue,
+        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyze_queue,
                              self._generator_done_flag, self._scan_done_flag, max_threads)
 
     def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
@@ -123,12 +123,12 @@ class WorkerFactory:
         :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
-        return AnalyzerWorker(self._database, self._analyze_queue, self._cve_queue,
+        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyze_queue, self._cve_queue,
                               self._scan_done_flag, self._analyzer_done_flag, max_threads)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, root_url: str = None,
-                    seed_urls: List[str] = None) -> None:
+                    seed_urls: List[str] = None) -> int:
         """
         Run all workers until completed
 
@@ -139,34 +139,71 @@ class WorkerFactory:
         :param analyzer: Analyzer Worker
         :param root_url: Root URL to start at
         :param seed_urls: List of URLs to continue crawling
+        :return: Exit code
         """
         logger.info("Launching Graven worker threads...")
-        vuln_worker = NVDMitreWorker(self._database, self._cve_queue,
+        vuln_worker = NVDMitreWorker(self._interrupt_stop_flag, self._database, self._cve_queue,
                                      self._analyzer_done_flag)  # for getting cve details
+        exit_code = 0  # assume ok
+        run_id = self._database.log_run_start(generator.get_syft_version(),
+                                              scanner.get_grype_version(),
+                                              scanner.get_grype_db_source())
         # spawn tasks
         timer = Timer()
+        timer.start()
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
-            timer.start()
-            run_id = self._database.log_run_start(generator.get_syft_version(),
-                                                  scanner.get_grype_version(),
-                                                  scanner.get_grype_db_source())
-            # start all workers
+            logger.debug_msg(f"Working Directory: {tmp_dir}")
             with ThreadPoolExecutor(max_workers=6) as executor:
                 futures = [
-                    executor.submit(analyzer.start, run_id),
-                    executor.submit(crawler.start, run_id, root_url if root_url else seed_urls.pop(), seed_urls),
-                    executor.submit(downloader.start, run_id, tmp_dir),
-                    executor.submit(generator.start, run_id, tmp_dir),
-                    executor.submit(scanner.start, run_id, tmp_dir),
-                    executor.submit(vuln_worker.start, run_id)
+                    executor.submit(lambda: _graceful_start(analyzer.start, run_id)),
+                    executor.submit(lambda: _graceful_start(crawler.start, run_id,
+                                                            root_url if root_url else seed_urls.pop(), seed_urls)),
+                    executor.submit(lambda: _graceful_start(downloader.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(vuln_worker.start, run_id))
                 ]
-                concurrent.futures.wait(futures)
+                try:
+                    # poll futures to break on interrupt
+                    while not self._interrupt_stop_flag.is_set():
+                        _, not_done = concurrent.futures.wait(futures, timeout=1)
+                        if not not_done:
+                            break
+                # interrupt
+                except KeyboardInterrupt:
+                    # report early exit with padding
+                    logger.warn(
+                        f"\n\n{'\033[1;31mKeyboardInterrupt received! Shutting down workers. . .\n\033[0m' * 5}")
+                    self._interrupt_stop_flag.set()
+                    logger.warn("Shutting down workers")
+                    exit_code = 2
+                # unknown error
+                except Exception as e:
+                    logger.fatal(e)
+
+            # fail fast if interrupt
+            if self._interrupt_stop_flag.is_set():
+                try:
+                    for f in futures:
+                        f.result(timeout=0)
+                except Exception:
+                    pass
 
         # print task durations
-        self._database.log_run_end(run_id, datetime.now(timezone.utc))
+        self._database.log_run_end(run_id, exit_code)
         timer.stop()
+        if exit_code:
+            logger.warn(f"Completed with non-zero exit code: {exit_code}")
         logger.info(f"Total Execution Time: {timer.format_time()}")
         crawler.print_statistics_message()
         downloader.print_statistics_message()
         generator.print_statistics_message()
         scanner.print_statistics_message()
+        return exit_code
+
+
+def _graceful_start(start_function: Callable, *args: Any) -> None:
+    try:
+        start_function(*args)
+    except Exception as e:
+        logger.error_exp(e)

@@ -27,7 +27,7 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 
 
 class DownloaderWorker:
-    def __init__(self, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  download_queue: Queue[Message],
                  generator_queue: Queue[Message],
                  crawler_done_flag: Event,
@@ -38,6 +38,7 @@ class DownloaderWorker:
         """
         Create a new downloader worker that downloads jars from the maven central file tree
 
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param download_queue: Queue to pop urls of jars to download from
         :param generator_queue: Queue of paths to jars to generate SBOMs for
@@ -46,6 +47,7 @@ class DownloaderWorker:
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :param download_limit: Max number of jars to be downloaded at one time
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._download_queue = download_queue
         self._generator_queue = generator_queue
@@ -71,7 +73,8 @@ class DownloaderWorker:
             response.raise_for_status()
             with open(jar_file.file_path, "wb") as file:
                 file.write(response.content)
-        logger.debug_msg(f"Downloaded {jar_url} in {time.time() - start_time:.2f}s")
+        logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                         f"Downloaded {jar_url} in {time.time() - start_time:.2f}s")
         self._downloaded_jars += 1
 
     def _process_message(self, message: Message, download_dir_path: str) -> None:
@@ -82,6 +85,11 @@ class DownloaderWorker:
         :param message: Message with download data
         :param download_dir_path: Path to directory to download jar to
         """
+        # skip if stop order triggered
+        if self._stop_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping download of {message.jar_url}")
+            self._download_queue.task_done()
+            return
         try:
             # init jar
             message.open_jar_file(download_dir_path, self._download_limit)
@@ -116,7 +124,8 @@ class DownloaderWorker:
                                       self._crawler_done_flag)  # block until items to process
             self._timer.start()
             # run while the crawler is still running or still tasks to process
-            while True:
+            while not self._stop_flag.is_set():
+                # logger.info(self._stop_flag.is_set())
                 try:
                     # limit the max number of jars on system at one time
                     if not self._download_limit.acquire(timeout=30):
@@ -136,10 +145,14 @@ class DownloaderWorker:
                     # exit if no new tasks and completed all remaining
                     if self._crawler_done_flag.is_set() and self._download_queue.empty():
                         break
-
-        logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
-        concurrent.futures.wait(tasks)
-        logger.info(f"All downloads finished, exiting. . .")
+        # log exit type
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+            concurrent.futures.wait(tasks, timeout=0)  # fail fast
+        else:
+            logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
+            concurrent.futures.wait(tasks)
+            logger.info(f"All downloads finished, exiting. . .")
         self._downloader_done_flag.set()  # signal no more jars
 
     def print_statistics_message(self) -> None:

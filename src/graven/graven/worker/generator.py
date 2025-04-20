@@ -23,7 +23,7 @@ DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
 
 
 class GeneratorWorker:
-    def __init__(self, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  syft: Syft,
                  generator_queue: Queue[Message],
                  analyze_queue: Queue[Message],
@@ -33,6 +33,7 @@ class GeneratorWorker:
         """
         Create a new generator worker that spawns threads to process jars using syft
 
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param syft: Syft interface to use for scanning
         :param generator_queue: Queue of jar details to generate SBOMs for
@@ -41,6 +42,7 @@ class GeneratorWorker:
         :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._syft = syft
         self._generator_queue = generator_queue
@@ -60,13 +62,21 @@ class GeneratorWorker:
         :param message: Message with jar path and additional details
         :param work_dir_path: Path to save the generated SBOMs to
         """
-
+        # skip if stop order triggered
+        if self._stop_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan of {message.syft_file.file_path}")
+            message.close()
+            self._generator_queue.task_done()
+            return
         try:
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                             f"Queuing syft: {message.jar_file.file_path}")
             message.open_syft_file(work_dir_path)
             return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             self._scan_queue.put(message)
             self._sboms_generated += 1
-            logger.info(f"Generated {message.syft_file.file_path}")
+            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                        f"Generated '{message.syft_file.file_name}'")
         except SyftScanFailure as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url, e, "syft failed to scan")
@@ -94,7 +104,8 @@ class GeneratorWorker:
             self._timer.start()
             # run while the downloader is still running or still tasks to process
             message = None
-            while True:
+            while not self._stop_flag.is_set():
+                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._generator_queue.get_nowait()
                     # scan
@@ -116,8 +127,13 @@ class GeneratorWorker:
 
                     self._database.log_error(self._run_id, Stage.GENERATOR, url, e, "Failed during loop")
 
-        logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
-        concurrent.futures.wait(tasks)
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+            concurrent.futures.wait(tasks, timeout=0)  # fail fast
+        else:
+            logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
+            concurrent.futures.wait(tasks)
+            logger.info(f"All jars scanned, exiting. . .")
         self._generator_done_flag.set()  # signal no tasks
 
     def print_statistics_message(self) -> None:

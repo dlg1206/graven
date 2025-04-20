@@ -22,7 +22,7 @@ DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
 
 
 class ScannerWorker:
-    def __init__(self, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  grype: Grype,
                  scan_queue: Queue[Message],
                  analyzer_queue: Queue[Message],
@@ -32,6 +32,7 @@ class ScannerWorker:
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param grype: Grype interface to use for scanning
         :param scan_queue: Queue of scan messages to scan
@@ -40,6 +41,7 @@ class ScannerWorker:
         :param scanner_done_flag: Flag to indicate to rest of pipeline that the scanner is finished
         :param max_threads: Max number of grype scans that can be made at once (default: ceil(os.cpu_count() / 3))
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._grype = grype
         self._scan_queue = scan_queue
@@ -59,17 +61,25 @@ class ScannerWorker:
         :param message: Message with jar path and additional details
         :param work_dir_path: Path to save the generated grype reports to
         """
-
+        # skip if stop order triggered
+        if self._stop_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan of {message.syft_file.file_path}")
+            message.close()
+            self._scan_queue.task_done()
+            return
         # scan
         try:
             message.open_grype_file(work_dir_path)
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                             f"Queuing grype: {message.syft_file.file_path}")
             return_code = self._grype.scan(message.syft_file.file_path, message.grype_file.file_path)
             # if return code != 1, then cves we not found
             if not return_code:
                 logger.debug_msg(f"No CVEs found in {message.grype_file.file_path}")
                 message.grype_file.close()
             else:
-                logger.info(f"Generated {message.grype_file.file_path}")
+                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                            f"Generated '{message.grype_file.file_name}'")
             # add updates to queue to add later
             self._analyze_queue.put(message)
             self._sboms_scanned += 1
@@ -98,8 +108,8 @@ class ScannerWorker:
             self._timer.start()
             # run while the generator is still running or still tasks to process
             message = None
-            while True:
-
+            while not self._stop_flag.is_set():
+                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._scan_queue.get_nowait()
                     # scan
@@ -120,9 +130,14 @@ class ScannerWorker:
                         message.close()
 
                     self._database.log_error(self._run_id, Stage.SCANNER, url, e, "Failed during loop")
-
-        logger.warn(f"No more sboms to scan, waiting for scans to finish. . .")
-        concurrent.futures.wait(tasks)
+        # log exit type
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+            concurrent.futures.wait(tasks, timeout=0)  # fail fast
+        else:
+            logger.warn(f"No more SBOMs to scan, waiting for scans to finish. . .")
+            concurrent.futures.wait(tasks)
+            logger.info(f"All SBOMs scanned, exiting. . .")
         self._scanner_done_flag.set()  # signal no tasks
 
     def print_statistics_message(self) -> None:

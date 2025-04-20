@@ -30,7 +30,7 @@ DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
 class AnalyzerWorker:
-    def __init__(self, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  analyze_queue: Queue[Message],
                  cve_queue: Queue[str],
                  scanner_done_flag: Event,
@@ -39,11 +39,13 @@ class AnalyzerWorker:
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param analyze_queue: Queue of items to save to the database
         :param scanner_done_flag: Flag to indicate the scanner has finished running
         :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._analyze_queue = analyze_queue
         self._cve_queue = cve_queue
@@ -66,7 +68,7 @@ class AnalyzerWorker:
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.info(f"Compressed and saved '{syft_file.file_path}'")
+        logger.info(f"Compressed and saved '{syft_file.file_name}'")
 
     def _save_dependency_artifacts(self, jar_id: str, syft_file: SyftFile) -> None:
         """
@@ -80,7 +82,7 @@ class AnalyzerWorker:
 
         # no additional artifacts
         if len(syft_data['artifacts']) == 1:
-            logger.debug_msg(f"'{syft_file.file_path}' does not contain any additional artifacts, skipping. . .")
+            logger.debug_msg(f"{syft_file.file_path} does not contain any additional artifacts, skipping. . .")
             return
 
         # todo - assume first item is always root
@@ -91,7 +93,7 @@ class AnalyzerWorker:
 
         # no direct dependencies
         if not direct_dependency_ids:
-            logger.debug_msg(f"'{syft_file.file_path}' does not contain any direct dependencies, skipping. . .")
+            logger.debug_msg(f"{syft_file.file_path} does not contain any direct dependencies, skipping. . .")
             return
 
         # save any additional arifact information
@@ -152,6 +154,12 @@ class AnalyzerWorker:
 
         :param message: Message with all data to parse and save
         """
+        # skip if stop order triggered
+        if self._stop_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis of {message.syft_file.file_path}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis of {message.grype_file.file_path}")
+            self._analyze_queue.task_done()
+            return
         try:
             # save jar
             self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
@@ -160,10 +168,16 @@ class AnalyzerWorker:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
                 self._save_dependency_artifacts(message.jar_id, message.syft_file)
                 message.syft_file.close()
+                logger.info(f"Processed '{message.syft_file.file_name}'")
+            else:
+                logger.debug_msg(f"{message.syft_file.file_path} file is closed, skipping. . .")
             # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
                 message.grype_file.close()
+                logger.info(f"Processed '{message.grype_file.file_name}'")
+            else:
+                logger.debug_msg(f"{message.grype_file.file_path} file is closed, skipping. . .")
             logger.info(f"Saved {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
@@ -185,7 +199,8 @@ class AnalyzerWorker:
             first_time_wait_for_tasks("Analyzer", self._analyze_queue,
                                       self._scanner_done_flag)  # block until items to process
             # while the scanner is still running or still tasks to process
-            while True:
+            while not self._stop_flag.is_set():
+                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
                     # scan
@@ -205,8 +220,14 @@ class AnalyzerWorker:
                         message.close()
 
                     self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
-        logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
-        concurrent.futures.wait(tasks)
+        # log exit type
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+            concurrent.futures.wait(tasks, timeout=0)  # fail fast
+        else:
+            logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
+            concurrent.futures.wait(tasks)
+            logger.info(f"All files processed, exiting. . .")
         self._analyzer_done_flag.set()  # signal no tasks
 
     def start(self, run_id: int) -> None:

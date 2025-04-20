@@ -27,7 +27,7 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  download_queue: Queue[Message],
                  crawler_done_flag: Event,
                  update: bool,
@@ -35,12 +35,14 @@ class CrawlerWorker:
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
+        :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param download_queue: The shared queue to place jar urls once found
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
         :param update: Add jar url to download queue even if already in the database
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
+        self._stop_flag = stop_flag
         self._database = database
         self._update = update
         self._crawl_queue = LifoQueue()
@@ -78,7 +80,8 @@ class CrawlerWorker:
                 # save jar url and timestamp
                 message = Message(download_url, datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
                 self._download_queue.put(message)
-                logger.debug_msg(f"Found jar url | {download_url}")
+                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                                 f"Found jar url | {download_url}")
 
     def _download_html(self, url: str) -> str:
         """
@@ -111,6 +114,11 @@ class CrawlerWorker:
 
         :param url: URL to process
         """
+        # skip if stop order triggered
+        if self._stop_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping crawl of {url}")
+            self._crawl_queue.task_done()
+            return
         self._parse_html(url, self._download_html(url))
         self._crawl_queue.task_done()
 
@@ -124,7 +132,8 @@ class CrawlerWorker:
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
             # crawl until no urls left
-            while True:
+            while not self._stop_flag.is_set():
+                # logger.info(self._stop_flag.is_set())
                 try:
                     url = self._crawl_queue.get_nowait()
                     # Skip if seen the url and not updating
@@ -153,9 +162,13 @@ class CrawlerWorker:
                         continue
                     # else exit
                     break
-
-        logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
-        concurrent.futures.wait(tasks)
+        # log exit type
+        if self._stop_flag.is_set():
+            logger.warn(f"Stop order received, exiting. . .")
+            concurrent.futures.wait(tasks, timeout=0)  # fail fast
+        else:
+            logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
+            concurrent.futures.wait(tasks)
 
     def print_statistics_message(self) -> None:
         """

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any
 
@@ -222,14 +222,15 @@ class BreadcrumbsDatabase(MySQLDatabase):
             ('grype_db_source', grype_db_source)])
         return run_id
 
-    def log_run_end(self, run_id: int, run_end_time: datetime) -> None:
+    def log_run_end(self, run_id: int, exit_code: int) -> None:
         """
         log the end of a run
 
         :param run_id: ID of run to end
-        :param run_end_time: Time run ended
+        :param exit_code: run exit code
         """
-        self._update(Table.RUN_LOG, [('end', run_end_time)], [('run_id', run_id)])
+        self._update(Table.RUN_LOG, [('end', datetime.now(timezone.utc)), ('exit_code', exit_code)],
+                     [('run_id', run_id)])
 
     def log_error(self, run_id: int, stage: Stage, url: str, error: Exception, comment: str = None,
                   details: Dict[Any, Any] = None) -> None:

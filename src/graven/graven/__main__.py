@@ -43,7 +43,8 @@ def _execute(args: Namespace) -> None:
     analyzer = worker_factory.create_analyzer_worker(args.max_analyzer_threads)
 
     # start job
-    worker_factory.run_workers(crawler, downloader, generator, scanner, analyzer, args.root_url, seed_urls)
+    exit_code = worker_factory.run_workers(crawler, downloader, generator, scanner, analyzer, args.root_url, seed_urls)
+    exit(exit_code)
 
 
 def _create_parser() -> ArgumentParser:

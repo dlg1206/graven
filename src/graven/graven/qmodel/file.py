@@ -21,7 +21,8 @@ class File:
         :param file_name: Name of the file
         :param file_ext: Extension of the file
         """
-        self._file_path = f"{work_dir}{os.sep}{file_name.replace(".jar", file_ext)}"
+        self._file_name = file_name.replace(".jar", file_ext)
+        self._file_path = f"{work_dir}{os.sep}{self._file_name}"
         self._open = True
 
     def close(self) -> None:
@@ -37,6 +38,13 @@ class File:
         except Exception as e:
             logger.error_exp(e)
         self._open = False
+
+    @property
+    def file_name(self) -> str:
+        """
+        :return: Name of this file
+        """
+        return self._file_name
 
     @property
     def file_path(self) -> str:
