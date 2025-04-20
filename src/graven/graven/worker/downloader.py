@@ -12,7 +12,7 @@ from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from qmodel.file import JarFile
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer, first_time_wait_for_tasks
+from shared.utils import Timer, first_time_wait_for_tasks, DEFAULT_MAX_CONCURRENT_REQUESTS
 
 """
 File: downloader.py
@@ -32,8 +32,8 @@ class DownloaderWorker:
                  generator_queue: Queue[Message],
                  crawler_done_flag: Event,
                  downloader_done_flag: Event,
-                 max_concurrent_requests: int,
-                 download_limit: int
+                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+                 download_limit: int = DEFAULT_MAX_JAR_LIMIT
                  ):
         """
         Create a new downloader worker that downloads jars from the maven central file tree

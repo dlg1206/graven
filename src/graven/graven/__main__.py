@@ -37,7 +37,9 @@ def _execute(args: Namespace) -> None:
         seed_urls = [args.root_url]
 
     # make workers
-    crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests, args.update)
+    crawler = worker_factory.create_crawler_worker(args.max_concurrent_crawl_requests,
+                                                   args.update or args.update_domain,
+                                                   args.update or args.update_jar)
     downloader = worker_factory.create_downloader_worker(args.max_concurrent_download_requests, args.download_limit)
     generator = worker_factory.create_generator_worker(args.max_generator_threads, args.syft_path)
     scanner = worker_factory.create_scanner_worker(args.max_scanner_threads, args.grype_path, args.grype_db_source)
@@ -80,9 +82,6 @@ def _create_parser() -> ArgumentParser:
                              type=str,
                              help="CSV file of root urls to restart the crawler at once the current root url is "
                                   "exhausted")
-    parser.add_argument("-u", "--update",
-                        action="store_true",
-                        help="Download jar and scan even if already in the database")
 
     crawler_group = parser.add_argument_group("Crawler Options")
     crawler_group.add_argument("--max-concurrent-crawl-requests",
@@ -90,6 +89,23 @@ def _create_parser() -> ArgumentParser:
                                type=int,
                                help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
                                default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+
+    crawler_group.add_argument("--update-domain",
+                               action="store_true",
+                               help="Update domains that have already been crawled. "
+                                    "Useful for ensuring no jars were missed in a domain"
+                               )
+
+    crawler_group.add_argument("--update-jar",
+                               action="store_true",
+                               help="Update jars that have already been crawled"
+                               )
+
+    crawler_group.add_argument("-u", "--update",
+                               action="store_true",
+                               help="Update domains AND jars that have already been crawled. "
+                                    "Supersedes --update-* flags"
+                               )
 
     downloader_group = parser.add_argument_group("Downloader Options")
     downloader_group.add_argument("--max-concurrent-download-requests",

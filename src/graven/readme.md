@@ -71,8 +71,9 @@ pip install -r requirements.txt
 python graven -h
 
 usage: graven [-h] [-l <log level>] [-s]
-              (--root-url <starting url> | --seed-urls-csv <path to csv>) [-u]
+              (--root-url <starting url> | --seed-urls-csv <path to csv>)
               [--max-concurrent-crawl-requests <number of requests>]
+              [--no-skip-domain] [--no-skip-jar] [--no-skip]
               [--max-concurrent-download-requests <number of requests>]
               [--download-limit <number of jars>]
               [--max-generator-threads <number of the threads>]
@@ -90,7 +91,6 @@ options:
                         Set log level (Default: INFO) (['INFO', 'DEBUG',
                         'ERROR'])
   -s, --silent          Run in silent mode
-  -u, --update          Download jar and scan even if already in the database
 
 Input Options:
   Only one flag is permitted
@@ -105,6 +105,11 @@ Crawler Options:
   --max-concurrent-crawl-requests <number of requests>
                         Max number of requests crawler can make at once
                         (Default: 8)
+  --update-domain       Update domains that have already been crawled. Useful
+                        for ensuring no jars were missed in a domain
+  --update-jar          Update jars that have already been crawled
+  -u, --update          Update domains AND jars that have already been
+                        crawled. Supersedes --update-* flags
 
 Downloader Options:
   --max-concurrent-download-requests <number of requests>

@@ -29,7 +29,7 @@ class GeneratorWorker:
                  analyze_queue: Queue[Message],
                  downloader_done_flag: Event,
                  generator_done_flag: Event,
-                 max_threads: int):
+                 max_threads: int = DEFAULT_MAX_GENERATOR_THREADS):
         """
         Create a new generator worker that spawns threads to process jars using syft
 

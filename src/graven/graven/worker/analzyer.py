@@ -35,7 +35,7 @@ class AnalyzerWorker:
                  cve_queue: Queue[str],
                  scanner_done_flag: Event,
                  analyzer_done_flag: Event,
-                 max_threads: int):
+                 max_threads: int = DEFAULT_MAX_ANALYZER_THREADS):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 

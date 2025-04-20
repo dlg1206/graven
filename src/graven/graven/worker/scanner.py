@@ -28,7 +28,7 @@ class ScannerWorker:
                  analyzer_queue: Queue[Message],
                  generator_done_flag: Event,
                  scanner_done_flag: Event,
-                 max_threads: int):
+                 max_threads: int = DEFAULT_MAX_SCANNER_THREADS):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 

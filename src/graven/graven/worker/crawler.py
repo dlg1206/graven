@@ -13,7 +13,7 @@ from requests import RequestException
 from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer
+from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
 
 """
 File: crawler.py
@@ -30,8 +30,9 @@ class CrawlerWorker:
     def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  download_queue: Queue[Message],
                  crawler_done_flag: Event,
-                 update: bool,
-                 max_concurrent_requests: int):
+                 update_domain: bool = False,
+                 update_jar: bool = False,
+                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
@@ -39,12 +40,14 @@ class CrawlerWorker:
         :param database: The database to store any error messages in
         :param download_queue: The shared queue to place jar urls once found
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
-        :param update: Add jar url to download queue even if already in the database
+        :param update_domain: Update a domain if already seen (Default: False)
+        :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         self._stop_flag = stop_flag
         self._database = database
-        self._update = update
+        self._update_domain = update_domain
+        self._update_jar = update_jar
         self._crawl_queue = LifoQueue()
         self._download_queue = download_queue
         self._crawler_done_flag = crawler_done_flag
@@ -73,7 +76,7 @@ class CrawlerWorker:
             if match.group(2):
                 download_url = f"{url}{match.group(2)}"
                 # Skip if seen the url and not updating
-                if not self._update and self._database.has_seen_jar_url(download_url):
+                if self._database.has_seen_jar_url(download_url) and not self._update_jar:
                     logger.warn(f"Found jar url, but already seen. Skipping. . . | {download_url}")
                     continue
 
@@ -137,7 +140,7 @@ class CrawlerWorker:
                 try:
                     url = self._crawl_queue.get_nowait()
                     # Skip if seen the url and not updating
-                    if not self._update and self._database.has_seen_domain_url(url):
+                    if self._database.has_seen_domain_url(url) and not self._update_domain:
                         logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
                         self._crawl_queue.task_done()
                         continue
@@ -150,8 +153,9 @@ class CrawlerWorker:
                     if not self._crawl_queue.empty():
                         logger.info(f"Found new urls to crawl, restarting")
                         continue
-                    # report that this domain was searched
-                    self._database.save_domain_url_as_seen(self._run_id, root_url, datetime.now(timezone.utc))
+                    # report domain as searched if new or updated
+                    if not self._database.has_seen_domain_url(url) or self._update_domain:
+                        self._database.save_domain_url_as_seen(self._run_id, root_url, datetime.now(timezone.utc))
                     # restart with seed url if any left
                     if seed_urls:
                         new_root = seed_urls.pop(0)

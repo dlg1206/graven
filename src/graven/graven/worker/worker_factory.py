@@ -58,17 +58,18 @@ class WorkerFactory:
         # shared nvd objects
         self._cve_queue: Queue[str] = Queue()
 
-    def create_crawler_worker(self, max_concurrent_requests: int, update: bool) -> CrawlerWorker:
+    def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool, update_jar: bool) -> CrawlerWorker:
         """
         Create a new crawler worker
 
-        :param update: Add jar url to download queue even if already in the database
+        :param update_domain: Update a domain if already seen
+        :param update_jar: Update a jar if already seen
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :return: CrawlerWorker
         """
 
         return CrawlerWorker(self._interrupt_stop_flag, self._database, self._download_queue,
-                             self._crawler_done_flag, update, max_concurrent_requests)
+                             self._crawler_done_flag, update_domain, update_jar, max_concurrent_requests)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
         """

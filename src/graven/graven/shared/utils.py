@@ -97,4 +97,8 @@ def first_time_wait_for_tasks(queue_name: str, queue: Queue, terminate_flag: Eve
             break
         except Empty:
             continue
-    logger.info(f"Tasks have been added to the {queue_name} queue, waited for {format_time(time.time() - wait_start)}.")
+    # report status based on termination flag
+    if terminate_flag.is_set():
+        logger.warn(f"Notified that no tasks will be added to the {queue_name} queue")
+    else:
+        logger.info(f"Tasks have been added to the {queue_name} queue, waited for {format_time(time.time() - wait_start)}.")
