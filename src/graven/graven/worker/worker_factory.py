@@ -58,7 +58,8 @@ class WorkerFactory:
         # shared nvd objects
         self._cve_queue: Queue[str] = Queue()
 
-    def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool, update_jar: bool) -> CrawlerWorker:
+    def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool,
+                              update_jar: bool) -> CrawlerWorker:
         """
         Create a new crawler worker
 

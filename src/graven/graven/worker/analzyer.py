@@ -29,6 +29,14 @@ WRITE_TIMEOUT = 1
 DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
+class NoArtifactsFoundError(ValueError):
+    def __init__(self):
+        """
+        Syft SBOM has no artifacts
+        """
+        super().__init__()
+
+
 class AnalyzerWorker:
     def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
                  analyze_queue: Queue[Message],
@@ -76,6 +84,7 @@ class AnalyzerWorker:
 
         :param jar_id: Jar ID SBOM belongs to
         :param syft_file: Syft file metadata with path to sbom file
+        :raises NoArtifactsFoundError: If no artifacts are in the syft SBOM
         """
         with open(syft_file.file_path, 'r') as f:
             syft_data = json.load(f)
@@ -87,6 +96,9 @@ class AnalyzerWorker:
 
         # todo - assume first item is always root
         artifacts = syft_data['artifacts']
+        # ensure artifacts to process
+        if len(artifacts) == 0:
+            raise NoArtifactsFoundError()
         root_id = artifacts[0]['id']
         direct_dependency_ids = {r['parent'] for r in syft_data['artifactRelationships']
                                  if r['child'] == root_id and r['type'] == "dependency-of"}
@@ -166,9 +178,15 @@ class AnalyzerWorker:
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
-                self._save_dependency_artifacts(message.jar_id, message.syft_file)
+                try:
+                    self._save_dependency_artifacts(message.jar_id, message.syft_file)
+                    logger.info(f"Processed '{message.syft_file.file_name}'")
+                except NoArtifactsFoundError as e:
+                    logger.warn(f"No artifacts found for '{message.syft_file.file_name}'", e)
+                    self._database.log_error(self._run_id, Stage.ANALYZER,
+                                             message.jar_url, e, details={'jar_id': message.jar_id})
                 message.syft_file.close()
-                logger.info(f"Processed '{message.syft_file.file_name}'")
+
             else:
                 logger.debug_msg(f"{message.syft_file.file_path} file is closed, skipping. . .")
             # process grype report
