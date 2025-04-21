@@ -16,15 +16,17 @@ SYFT_BIN = "syft.exe" if platform.system() == "Windows" else "syft"
 
 
 class SyftScanFailure(RuntimeError):
-    def __init__(self, file_name: str, stderr: str):
+    def __init__(self, file_name: str, return_code: int, stderr: str = None):
         """
         Create new scan failure
 
         :param file_name: Name of file scanned
-        :param stderr: syft stderr output
+        :param return_code: return code of syft operation
+        :param stderr: optional syft stderr output
         """
         super().__init__(f"syft scan failed for {file_name}")
         self.file_name = file_name
+        self.return_code = return_code
         self.stderr = stderr
 
 
@@ -64,11 +66,11 @@ class Syft:
         :return: Return code of the operation
         """
         start_time = time.time()
-        result = subprocess.run([self._bin_path, f"-o json={out_path}", jar_path],
+        result = subprocess.run([self._bin_path, f"-o json={out_path}", "--from", "local-file", jar_path],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         # non-zero, non-one error
         if result.returncode:
-            raise SyftScanFailure(jar_path, result.stderr.decode())
+            raise SyftScanFailure(jar_path, result.returncode, result.stderr.decode())
         logger.debug_msg(f"Scanned {jar_path} in {time.time() - start_time:.2f}s")
         return result.returncode
 

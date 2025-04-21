@@ -80,7 +80,7 @@ class ScannerWorker:
             else:
                 logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                             f"Generated '{message.grype_file.file_name}'")
-            # add updates to queue to add later
+            # then pass down pipeline
             self._analyze_queue.put(message)
             self._sboms_scanned += 1
         except GrypeScanFailure as e:

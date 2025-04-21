@@ -73,13 +73,25 @@ class GeneratorWorker:
                              f"Queuing syft: {message.jar_file.file_path}")
             message.open_syft_file(work_dir_path)
             return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
-            self._scan_queue.put(message)
-            self._sboms_generated += 1
-            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                        f"Generated '{message.syft_file.file_name}'")
+            # report error and continue
+            if return_code:
+                logger.debug_msg(f"syft scan of {message.syft_file.file_path} had a non-zero exit code: {return_code}")
+                self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url,
+                                         SyftScanFailure(message.syft_file.file_name, return_code),
+                                         details={'return_code': return_code})
+                # If cannot generate SBOM, fail early - don't continue down this path
+                message.syft_file.close()
+            else:
+                # Else pass down pipeline
+                self._sboms_generated += 1
+                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                            f"Generated '{message.syft_file.file_name}'")
+                self._scan_queue.put(message)
+
         except SyftScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url, e, "syft failed to scan")
+            self._database.log_error(self._run_id, Stage.GENERATOR,
+                                     message.jar_url, e, details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
         except Exception as e:
             logger.error_exp(e)
