@@ -105,10 +105,13 @@ class DownloaderWorker:
             else:
                 self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
                                          "Failed to download jar")
+            message.close()  # rm and release if anything goes wrong
+            self._database.complete_pending_domain_job(message.domain_url)
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e, "Error in download")
             message.close()  # rm and release if anything goes wrong
+            self._database.complete_pending_domain_job(message.domain_url)
         finally:
             self._download_queue.task_done()
 

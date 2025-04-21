@@ -200,12 +200,12 @@ class AnalyzerWorker:
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.ANALYZER, message.jar_url, e, "error when parsing results")
-            message.close()
         finally:
             # remove any remaining files
             if message:
                 message.close()
             self._analyze_queue.task_done()
+            self._database.complete_pending_domain_job(message.domain_url)
 
     def _analyze(self) -> None:
         """

@@ -21,6 +21,13 @@ DEFAULT_POOL_SIZE = 32
 MAVEN_CENTRAL_ROOT = "https://repo1.maven.org/maven2/"
 
 
+class CrawlStatus(Enum):
+    DOES_NOT_EXIST = "DOES_NOT_EXIST"
+    NOT_STARTED = "NOT_STARTED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+
+
 class Stage(Enum):
     """
     Stage enums - max is 5 chars
@@ -45,15 +52,6 @@ class BreadcrumbsDatabase(MySQLDatabase):
         except (ProgrammingError, DatabaseError) as e:
             logger.fatal(e)
         logger.info("Connected to the database")
-
-    def has_seen_domain_url(self, url: str) -> bool:
-        """
-        Check if the database has seen these domains before
-
-        :param url: URL to check
-        :return: True if seen, false otherwise
-        """
-        return len(self._select(Table.DOMAIN, where_equals=[('url', url)])) != 0
 
     def has_seen_jar_url(self, url: str) -> bool:
         """
@@ -91,15 +89,86 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         return len(self._select(Table.ARTIFACT, where_equals=[('purl', purl)])) != 0
 
-    def save_domain_url_as_seen(self, run_id: int, url: str, last_crawled: datetime) -> None:
+    def get_domain_status(self, domain_url: str) -> CrawlStatus:
+        """
+        Check if the database has seen these domains before
+
+        :param domain_url: URL to check
+        :return: Crawler status
+        """
+        domains = self._select(Table.DOMAIN, ['crawl_start', 'crawl_end'], where_equals=[('url', domain_url)])
+        # domain has never been explored
+        if len(domains) == 0:
+            return CrawlStatus.DOES_NOT_EXIST
+        domain = domains[0]
+        # if started and ended - then done
+        if domain[0] and domain[1]:
+            return CrawlStatus.COMPLETED
+        # elif started and not ended - then in progress
+        elif domain[0] and not domain[1]:
+            return CrawlStatus.IN_PROGRESS
+        # not started and not ended - must be not started
+        else:
+            return CrawlStatus.NOT_STARTED
+
+    def init_domain(self, run_id: int, domain_url: str) -> None:
+        """
+        Record that this domain has been initialized, but not started
+
+        :param run_id: ID of the jar and scan was done in
+        :param domain_url: URL of root domain starting to crawl
+        """
+        self._upsert(Table.DOMAIN, [('url', domain_url)], [('run_id', run_id)])
+
+    def start_domain(self, domain_url: str, crawl_start: datetime) -> None:
+        """
+        Record that this domain has started the crawl
+
+        :param domain_url: URL of root domain starting to crawl
+        :param crawl_start: Timestamp of when crawl started
+        """
+        # reset end time
+        self._upsert(Table.DOMAIN, [('url', domain_url)], [('crawl_start', crawl_start), ('crawl_end', None)])
+
+    def complete_domain(self, run_id: int, domain_url: str, crawl_end: datetime) -> None:
         """
         Save that this domain has been crawled
 
-        :param run_id: ID of the jar and scan was done in
-        :param url: URL of root domain fully crawled
-        :param last_crawled: Timestamp of when last crawled domain (Default: now)
+        :param run_id: ID of run crawl was started in
+        :param domain_url: URL of root domain fully crawled
+        :param crawl_end: Timestamp of when crawl ended
         """
-        self._upsert(Table.DOMAIN, [('url', url)], [('run_id', run_id), ('last_crawled', last_crawled)])
+        self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
+
+    def add_pending_domain_job(self, domain_url: str) -> None:
+        """
+        Increase the count of pending jobs spawning from this root domain
+
+        :param domain_url: URL of root domain job was spawned from
+        """
+        with self._open_connection() as conn:
+            with self._get_cursor(conn) as cur:
+                cur.execute(f"""
+                    UPDATE {Table.DOMAIN.value}
+                    SET pending_jobs = pending_jobs + 1
+                    WHERE url = %s;
+                """, (domain_url,))
+                conn.commit()
+
+    def complete_pending_domain_job(self, domain_url: str) -> None:
+        """
+        Complete / decrease the count of pending jobs spawning from this root domain
+
+        :param domain_url: URL of root domain job was spawned from
+        """
+        with self._open_connection() as conn:
+            with self._get_cursor(conn) as cur:
+                cur.execute(f"""
+                    UPDATE {Table.DOMAIN.value}
+                    SET pending_jobs = pending_jobs - 1
+                    WHERE url = %s;
+                """, (domain_url,))
+                conn.commit()
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """
