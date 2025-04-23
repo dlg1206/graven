@@ -19,8 +19,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pylint
-          pip install src/common
-          pip install -r src/graven/requirements.txt
+          pip install -r graven/requirements.txt
       - name: Analysing the code with pylint
         run: |
           pylint --exit-zero --fail-under=6.0 $(git ls-files '*.py')
