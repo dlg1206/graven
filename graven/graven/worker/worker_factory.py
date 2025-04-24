@@ -7,7 +7,7 @@ from typing import List, Callable, Any
 
 from anchore.grype import Grype
 from anchore.syft import Syft
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase
+from db.graven_database import GravenDatabase
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer
@@ -33,7 +33,7 @@ class WorkerFactory:
         Create new worker factory
         """
         # attempt to log in into the database
-        self._database = BreadcrumbsDatabase()
+        self._database = GravenDatabase()
         self._interrupt_stop_flag = Event()
 
         # shared crawler objects

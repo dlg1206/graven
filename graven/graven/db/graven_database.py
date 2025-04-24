@@ -9,7 +9,7 @@ from db.database import MySQLDatabase, Table, JoinTable
 from shared.logger import logger
 
 """
-File: cve_breadcrumbs_database.py
+File: graven_database.py
 
 Description: MySQL database interface for CVE-Breadcrumbs database
 
@@ -40,7 +40,7 @@ class Stage(Enum):
     NVD = "NVDAP"
 
 
-class BreadcrumbsDatabase(MySQLDatabase):
+class GravenDatabase(MySQLDatabase):
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
         Create a new interface connection to the database

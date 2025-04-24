@@ -9,7 +9,7 @@ from threading import Event
 
 import zstandard as zstd
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.graven_database import GravenDatabase, Stage
 from qmodel.file import GrypeFile, SyftFile
 from qmodel.message import Message
 from shared.logger import logger
@@ -38,7 +38,7 @@ class NoArtifactsFoundError(ValueError):
 
 
 class AnalyzerWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  analyze_queue: Queue[Message],
                  cve_queue: Queue[str],
                  scanner_done_flag: Event,

@@ -5,7 +5,7 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.grype import GrypeScanFailure, Grype
-from db.cve_breadcrumbs_database import Stage, BreadcrumbsDatabase
+from db.graven_database import Stage, GravenDatabase
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer, first_time_wait_for_tasks
@@ -22,7 +22,7 @@ DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
 
 
 class ScannerWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  grype: Grype,
                  scan_queue: Queue[Message],
                  analyzer_queue: Queue[Message],

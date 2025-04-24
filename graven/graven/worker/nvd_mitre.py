@@ -9,7 +9,7 @@ from typing import List
 import requests
 from bs4 import BeautifulSoup
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.graven_database import GravenDatabase, Stage
 from shared.logger import logger
 from shared.utils import first_time_wait_for_tasks
 
@@ -65,7 +65,7 @@ class CVENotFoundError(IOError):
 
 
 class NVDMitreWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase, cve_queue: Queue[str],
+    def __init__(self, stop_flag: Event, database: GravenDatabase, cve_queue: Queue[str],
                  analyzer_done_flag: Event):
         """
         Create a new NVD and Mitre Worker

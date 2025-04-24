@@ -5,7 +5,7 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.syft import Syft, SyftScanFailure
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.graven_database import GravenDatabase, Stage
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer, first_time_wait_for_tasks
@@ -23,7 +23,7 @@ DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
 
 
 class GeneratorWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  syft: Syft,
                  generator_queue: Queue[Message],
                  analyze_queue: Queue[Message],

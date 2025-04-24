@@ -3,7 +3,6 @@ import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from enum import Enum
 from queue import LifoQueue, Queue
 from threading import Event
 from typing import List
@@ -11,7 +10,7 @@ from typing import List
 import requests
 from requests import RequestException
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage, CrawlStatus
+from db.graven_database import GravenDatabase, Stage, CrawlStatus
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
@@ -28,7 +27,7 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  download_queue: Queue[Message],
                  crawler_done_flag: Event,
                  update_domain: bool = False,
@@ -150,7 +149,8 @@ class CrawlerWorker:
                             self._database.start_domain(url, datetime.now(timezone.utc))
                             logger.debug_msg(f"Start crawler domain '{self._current_domain}'")
                         # skip if already in progress or if complete and not updating
-                        elif crawl_status == CrawlStatus.IN_PROGRESS or (crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
+                        elif crawl_status == CrawlStatus.IN_PROGRESS or (
+                                crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
                             logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
                             self._crawl_queue.task_done()
                             continue
@@ -177,7 +177,8 @@ class CrawlerWorker:
                         logger.info(f"Crawler exhausted '{self._current_domain}'. Restarting with '{new_root}'")
                         self._current_domain = new_root
                         # init if updating or dne
-                        if self._update_domain or self._database.get_domain_status(self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
+                        if self._update_domain or self._database.get_domain_status(
+                                self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
                             self._database.init_domain(self._run_id, self._current_domain)
                             logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
                         self._crawl_queue.put(self._current_domain)

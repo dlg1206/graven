@@ -8,7 +8,7 @@ from threading import Event, Semaphore
 import requests
 from requests import RequestException
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.graven_database import GravenDatabase, Stage
 from qmodel.file import JarFile
 from qmodel.message import Message
 from shared.logger import logger
@@ -27,7 +27,7 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 
 
 class DownloaderWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  download_queue: Queue[Message],
                  generator_queue: Queue[Message],
                  crawler_done_flag: Event,
