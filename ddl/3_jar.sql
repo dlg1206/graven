@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS jar
     artifact_id  VARCHAR(255),
     version      VARCHAR(100),
     publish_date TIMESTAMP,
+    last_grype_scan TIMESTAMP,
+    # metadata
     last_processed TIMESTAMP,
     status       VARCHAR(32),   # track stage
     run_id       INTEGER,

@@ -80,12 +80,12 @@ class ScannerWorker:
             self._sboms_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "grype failed to scan")
+            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id)
             message.close()
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "error when scanning with grype")
+            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id)
             message.close()
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:

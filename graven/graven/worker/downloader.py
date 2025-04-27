@@ -97,17 +97,16 @@ class DownloaderWorker:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
-                                         comment="Failed to download jar",
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, e,
+                                         jar_id=message.jar_id,
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
-                                         "Failed to download jar")
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()  # rm and release if anything goes wrong
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e, "Error in download")
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()  # rm and release if anything goes wrong
 
