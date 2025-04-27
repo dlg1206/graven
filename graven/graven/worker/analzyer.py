@@ -153,7 +153,7 @@ class AnalyzerWorker:
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
         # save timestamp
         last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp'].replace("Z", "")[:26])
-        self._database.upsert_jar_last_scan(self._run_id, jar_id, last_scanned)
+        self._database.upsert_jar_last_grype_scan(self._run_id, jar_id, last_scanned)
 
     def _process_message(self, message: Message) -> None:
         """
@@ -176,8 +176,6 @@ class AnalyzerWorker:
                     logger.info(f"Processed '{message.syft_file.file_name}'")
                 except NoArtifactsFoundError as e:
                     logger.warn(f"No artifacts found for '{message.syft_file.file_name}'", e)
-                    self._database.log_error(self._run_id, Stage.ANALYZER,
-                                             message.jar_url, e, details={'jar_id': message.jar_id})
                 message.syft_file.close()
 
             else:
@@ -194,7 +192,7 @@ class AnalyzerWorker:
             logger.info(f"Saved {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, message.jar_url, e, "error when parsing results")
+            self._database.log_error(self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # remove any remaining files

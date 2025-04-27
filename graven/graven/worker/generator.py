@@ -8,7 +8,7 @@ from anchore.syft import Syft, SyftScanFailure
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer
+from shared.timer import Timer
 
 """
 File: generator.py
@@ -70,8 +70,9 @@ class GeneratorWorker:
             # report error and continue
             if return_code:
                 logger.debug_msg(f"syft scan of {message.syft_file.file_path} had a non-zero exit code: {return_code}")
-                self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url,
+                self._database.log_error(self._run_id, Stage.GENERATOR,
                                          SyftScanFailure(message.syft_file.file_name, return_code),
+                                         jar_id=message.jar_id,
                                          details={'return_code': return_code})
                 # If cannot generate SBOM, fail early - don't continue down this path
                 message.syft_file.close()
@@ -85,14 +86,14 @@ class GeneratorWorker:
 
         except SyftScanFailure as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.GENERATOR,
-                                     message.jar_url, e, details={'return_code': e.return_code, 'stderr': e.stderr})
+            self._database.log_error(self._run_id, Stage.GENERATOR, e,
+                                     jar_id=message.jar_id,
+                                     details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url, e,
-                                     "error when generating with syft")
+            self._database.log_error(self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id)
             message.syft_file.close()  # remove sbom if generated
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:

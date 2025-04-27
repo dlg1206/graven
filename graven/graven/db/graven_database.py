@@ -223,15 +223,15 @@ class GravenDatabase(MySQLDatabase):
         ]
         self._upsert(Table.JAR, [('jar_id', jar_id)], inserts)
 
-    def upsert_jar_last_scan(self, run_id: int, jar_id: str, last_scanned: datetime) -> None:
+    def upsert_jar_last_grype_scan(self, run_id: int, jar_id: str, last_grype_scan: datetime) -> None:
         """
         Update when the last time the jar's SBOM was scanned with grype
 
         :param run_id: Run id this was done
         :param jar_id: id of the jar being scanned
-        :param last_scanned: timestamp string of the last scan
+        :param last_grype_scan: timestamp string of the last scan
         """
-        self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_scanned', last_scanned)])
+        self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_grype_scan', last_grype_scan)])
 
     def upsert_sbom_blob(self, run_id: int, jar_id: str, sbom_blob: bytes) -> None:
         """
@@ -303,22 +303,21 @@ class GravenDatabase(MySQLDatabase):
         self._update(Table.RUN_LOG, [('end', datetime.now(timezone.utc)), ('exit_code', exit_code)],
                      [('run_id', run_id)])
 
-    def log_error(self, run_id: int, stage: Stage, url: str, error: Exception, comment: str = None,
+    def log_error(self, run_id: int, stage: Stage, error: Exception, jar_id: str = None,
                   details: Dict[Any, Any] = None) -> None:
         """
         Log an error in the database
 
         :param run_id: ID of the jar and scan was done in
         :param stage: Stage of pipeline the error occurred at
-        :param url: URL of resource
         :param error: Error that occurred
-        :param comment: Optional comment about error
-        :param details: Option JSON data to include to help debug error
+        :param jar_id: Jar ID if available
+        :param details: Optional JSON data to include to help debug error
         """
-        inserts = [('run_id', run_id), ('stage', stage.value), ('url', url),
+        inserts = [('timestamp', datetime.now(timezone.utc)), ('run_id', run_id), ('stage', stage.value),
                    ('error_type', type(error).__name__), ('error_message', str(error))]
-        if comment:
-            inserts.append(('comment', comment))
+        if jar_id:
+            inserts.append(('jar_id', jar_id))
         if details:
             inserts.append(('details', json.dumps(details)))
         self._insert(Table.ERROR_LOG, inserts)

@@ -13,7 +13,7 @@ from db.graven_database import GravenDatabase
 from shared.logger import logger
 
 """
-file: nvd_mitre.py
+file: vuln_fetcher.py
 Description: Pull CVE and CWE data from NVD and MITRE
 Documentation: https://nvd.nist.gov/developers/vulnerabilities
 
@@ -63,7 +63,7 @@ class CVENotFoundError(IOError):
         super().__init__(f"CVE '{cve_id}' does not exist: {nvd_url}")
 
 
-class NVDMitreWorker:
+class VulnFetcherWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase, cve_queue: Queue[str | None]):
         """
         Create a new NVD and Mitre Worker

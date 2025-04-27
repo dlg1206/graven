@@ -12,7 +12,8 @@ from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
 from shared.logger import logger
-from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
+from shared.timer import Timer
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 
 """
 File: crawler.py
@@ -98,6 +99,10 @@ class CrawlerWorker:
         :param url: URL to download
         :return: HTML content
         """
+        # prempt details incase of failure
+        details = {
+            'url': url
+        }
         try:
             with requests.get(url) as response:
                 response.raise_for_status()
@@ -106,14 +111,11 @@ class CrawlerWorker:
             # failed to get url
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(self._run_id, Stage.CRAWLER, url, e,
-                                         comment="Failed to download page",
-                                         details={'status_code': e.response.status_code})
-            else:
-                self._database.log_error(self._run_id, Stage.CRAWLER, url, e, "Failed to download page")
+                details['status_code'] = e.response.status_code
+            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.CRAWLER, url, e, "Error in crawl")
+            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
 
     def _process_url(self, url: str) -> None:
         """

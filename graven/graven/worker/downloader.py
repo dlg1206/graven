@@ -11,7 +11,8 @@ from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.file import JarFile
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
+from shared.timer import Timer
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 
 """
 File: downloader.py
@@ -24,6 +25,7 @@ Description: Download jars into temp directories to be scanned
 DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
 DOWNLOAD_ACQUIRE_TIMEOUT = 30
 RETRY_SLEEP = 10
+
 
 class DownloaderWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
@@ -95,17 +97,16 @@ class DownloaderWorker:
             # failed to get jar
             logger.error_exp(e)
             if hasattr(e, 'response'):
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
-                                         comment="Failed to download jar",
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, e,
+                                         jar_id=message.jar_id,
                                          details={'status_code': e.response.status_code})
             else:
-                self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e,
-                                         "Failed to download jar")
+                self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()  # rm and release if anything goes wrong
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, message.jar_url, e, "Error in download")
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()  # rm and release if anything goes wrong
 
@@ -140,14 +141,14 @@ class DownloaderWorker:
                     if not self._crawler_done_flag or self._crawler_done_flag.is_set():
                         break
                     # else using the crawler and more jars will come
-                    logger.warn(f"Found no jars to download but crawler is still running, sleeping for {RETRY_SLEEP}s. . .")
+                    logger.warn(
+                        f"Found no jars to download but crawler is still running, sleeping for {RETRY_SLEEP}s. . .")
                     time.sleep(RETRY_SLEEP)
                     continue
 
                 # download jar
                 self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
                 tasks.append(exe.submit(self._process_message, message, work_dir_path))
-
 
         # log exit type
         if self._stop_flag.is_set():

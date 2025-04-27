@@ -10,13 +10,13 @@ from anchore.syft import Syft
 from db.graven_database import GravenDatabase
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer
+from shared.timer import Timer
 from worker.analzyer import AnalyzerWorker
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
-from worker.nvd_mitre import NVDMitreWorker
 from worker.scanner import ScannerWorker
+from worker.vuln_fetcher import VulnFetcherWorker
 
 """
 File: worker_factory.py
@@ -64,7 +64,8 @@ class WorkerFactory:
         """
 
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
-                             self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar, max_concurrent_requests)
+                             self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar,
+                             max_concurrent_requests)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
         """
@@ -75,7 +76,8 @@ class WorkerFactory:
         :return: DownloaderWorker
         """
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
-                                self._crawler_first_hit_flag, self._crawler_done_flag, max_concurrent_requests, download_limit)
+                                self._crawler_first_hit_flag, self._crawler_done_flag, max_concurrent_requests,
+                                download_limit)
 
     def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
         """
@@ -135,8 +137,8 @@ class WorkerFactory:
         :return: Exit code
         """
         logger.info("Launching Graven worker threads...")
-        vuln_worker = NVDMitreWorker(self._interrupt_stop_flag, self._database,
-                                     self._cve_queue)  # for getting cve details
+        vuln_worker = VulnFetcherWorker(self._interrupt_stop_flag, self._database,
+                                        self._cve_queue)  # for getting cve details
         exit_code = 0  # assume ok
         run_id = self._database.log_run_start(generator.get_syft_version(),
                                               scanner.get_grype_version(),
