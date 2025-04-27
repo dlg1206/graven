@@ -5,10 +5,10 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.syft import Syft, SyftScanFailure
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage
+from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer, first_time_wait_for_tasks
+from shared.utils import Timer
 
 """
 File: generator.py
@@ -23,12 +23,10 @@ DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
 
 
 class GeneratorWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
                  syft: Syft,
-                 generator_queue: Queue[Message],
-                 analyze_queue: Queue[Message],
-                 downloader_done_flag: Event,
-                 generator_done_flag: Event,
+                 generator_queue: Queue[Message | None],
+                 analyze_queue: Queue[Message | None],
                  max_threads: int = DEFAULT_MAX_GENERATOR_THREADS):
         """
         Create a new generator worker that spawns threads to process jars using syft
@@ -38,8 +36,6 @@ class GeneratorWorker:
         :param syft: Syft interface to use for scanning
         :param generator_queue: Queue of jar details to generate SBOMs for
         :param analyze_queue: Queue of SBOM details to analyze
-        :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
-        :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
         :param max_threads: Max number of concurrent requests allowed to be made at once
         """
         self._stop_flag = stop_flag
@@ -47,8 +43,6 @@ class GeneratorWorker:
         self._syft = syft
         self._generator_queue = generator_queue
         self._scan_queue = analyze_queue
-        self._downloader_done_flag = downloader_done_flag
-        self._generator_done_flag = generator_done_flag
         self._max_threads = max_threads
 
         self._timer = Timer()
@@ -86,6 +80,7 @@ class GeneratorWorker:
                 self._sboms_generated += 1
                 logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                             f"Generated '{message.syft_file.file_name}'")
+                self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
                 self._scan_queue.put(message)
 
         except SyftScanFailure as e:
@@ -93,13 +88,13 @@ class GeneratorWorker:
             self._database.log_error(self._run_id, Stage.GENERATOR,
                                      message.jar_url, e, details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
-            self._database.complete_pending_domain_job(message.domain_url)
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url, e,
                                      "error when generating with syft")
             message.syft_file.close()  # remove sbom if generated
-            self._database.complete_pending_domain_job(message.domain_url)
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             message.jar_file.close()  # always remove jar
             self._generator_queue.task_done()
@@ -114,32 +109,25 @@ class GeneratorWorker:
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
             # block until items to process
-            first_time_wait_for_tasks("Generator", self._generator_queue, self._downloader_done_flag)
+            # first_time_wait_for_tasks("Generator", self._generator_queue, self._downloader_done_flag)
+            # todo - waiting logic
             self._timer.start()
-            # run while the downloader is still running or still tasks to process
-            message = None
             while not self._stop_flag.is_set():
-                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._generator_queue.get_nowait()
+
+                    # break if poison pill - ie no more jobs
+                    if not message:
+                        break
                     # scan
+                    self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
                     tasks.append(exe.submit(self._process_message, message, work_dir_path))
                 except Empty:
                     """
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    # exit if no new tasks and completed all remaining
-                    if self._downloader_done_flag.is_set() and self._generator_queue.empty:
-                        break
-                except Exception as e:
-                    logger.error_exp(e)
-                    url = None
-                    if message:
-                        url = message.jar_url
-                        message.close()
-
-                    self._database.log_error(self._run_id, Stage.GENERATOR, url, e, "Failed during loop")
+                    continue
 
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -148,7 +136,7 @@ class GeneratorWorker:
             logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
             concurrent.futures.wait(tasks)
             logger.info(f"All jars scanned, exiting. . .")
-        self._generator_done_flag.set()  # signal no tasks
+        self._scan_queue.put(None)  # poison queue to signal stop
 
     def print_statistics_message(self) -> None:
         """

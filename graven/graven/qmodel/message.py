@@ -1,4 +1,3 @@
-from datetime import datetime
 from threading import Semaphore
 
 from qmodel.file import JarFile, GrypeFile, SyftFile
@@ -13,18 +12,15 @@ Description: Collection of standardized messages for queues
 
 
 class Message:
-    def __init__(self, domain_url: str, jar_url: str, publish_date: datetime):
+    def __init__(self, jar_url: str, jar_uid: str):
         """
         Generator metadata object with details about the downloaded jar
 
-        :param domain_url: The domain of this jar url was spawned from
         :param jar_url: URL of the jar
-        :param publish_date: Timestamp when the jar was added
+        :param jar_uid: UID of the jar
         """
-        self._jar_id = jar_url.split("/")[-1]
-        self._domain_url = domain_url
         self._jar_url = jar_url
-        self._publish_date = publish_date
+        self._jar_id = jar_uid
         self.jar_file: JarFile | None = None
         self.syft_file: SyftFile | None = None
         self.grype_file: GrypeFile | None = None
@@ -75,13 +71,6 @@ class Message:
             self.grype_file = None
 
     @property
-    def domain_url(self) -> str:
-        """
-        :return: Domain url
-        """
-        return self._domain_url
-
-    @property
     def jar_id(self) -> str:
         """
         :return: Jar id
@@ -94,10 +83,3 @@ class Message:
         :return: URL of the jar
         """
         return self._jar_url
-
-    @property
-    def publish_date(self) -> datetime:
-        """
-        :return: publish date of jar
-        """
-        return self._publish_date

@@ -1,27 +1,27 @@
 # file: compose.yaml
-# description: Compose stack to launch breadcrumbs database
+# description: Compose stack to launch graven database
 #
 # @author: Derek Garcia
 services:
 
   # SQL Database
   mysql:
-    container_name: cve_database
+    container_name: graven_database
     image: mysql:8.4.3
     env_file:
       - .env
     volumes:
       - ./ddl:/docker-entrypoint-initdb.d
-      - cve_breadcrumbs_db:/var/lib/mysql
+      - graven_db:/var/lib/mysql
     ports:
       - ${EXTERNAL_PORT:-3306}:3306
     networks:
-      breadcrumbs:
+      graven:
 
 # Create a named persistent volume
 volumes:
-  cve_breadcrumbs_db:
+  graven_db:
 
 # Create custom network for other containers to attach to
 networks:
-  breadcrumbs:
+  graven:

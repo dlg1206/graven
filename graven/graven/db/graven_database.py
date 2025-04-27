@@ -6,10 +6,11 @@ from typing import Dict, Any
 from mysql.connector import ProgrammingError, DatabaseError
 
 from db.database import MySQLDatabase, Table, JoinTable
+from qmodel.message import Message
 from shared.logger import logger
 
 """
-File: cve_breadcrumbs_database.py
+File: graven_database.py
 
 Description: MySQL database interface for CVE-Breadcrumbs database
 
@@ -28,19 +29,28 @@ class CrawlStatus(Enum):
     COMPLETED = "COMPLETED"
 
 
+class FinalStatus(Enum):
+    DONE = "DONE"
+    ERROR = "ERROR"
+
+
 class Stage(Enum):
     """
-    Stage enums - max is 5 chars
+    Stage enums
     """
     CRAWLER = "CRAWL"
-    DOWNLOADER = "DWNLD"
-    GENERATOR = "GENER"
-    SCANNER = "SCANR"
-    ANALYZER = "ALYZR"
-    NVD = "NVDAP"
+    TRN_DB_DWN = "0_TRN_DATABASE_DOWNLOAD"
+    DOWNLOADER = "1_DOWNLOAD"
+    TRN_DWN_GEN = "2_TRN_DOWNLOAD_GENERATOR"
+    GENERATOR = "3_GENERATOR"
+    TRN_GEN_SCN = "4_TRN_GENERATOR_SCANNER"
+    SCANNER = "5_SCANNER"
+    TRN_SCN_ANL = "6_TRN_SCANNER_ANALYZER"
+    ANALYZER = "7_ANALYZER"
+    VULN = "VULN"
 
 
-class BreadcrumbsDatabase(MySQLDatabase):
+class GravenDatabase(MySQLDatabase):
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
         Create a new interface connection to the database
@@ -88,6 +98,20 @@ class BreadcrumbsDatabase(MySQLDatabase):
         :return: True if seen, false otherwise
         """
         return len(self._select(Table.ARTIFACT, where_equals=[('purl', purl)])) != 0
+
+    def get_message_for_update(self) -> Message | None:
+        # todo - option to get completed or failed jars
+        with self._open_connection() as conn:
+            with self._get_cursor(conn) as cur:
+                cur.execute("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED;")
+                result = cur.fetchone()
+                # return none if no jobs
+                if not result:
+                    return None
+                # else mark in progress
+                cur.execute("UPDATE jar SET status = %s WHERE jar_id = %s;", (Stage.TRN_DB_DWN.value, result[1]))
+                conn.commit()
+        return Message(f"{MAVEN_CENTRAL_ROOT}{result[0]}", result[1])
 
     def get_domain_status(self, domain_url: str) -> CrawlStatus:
         """
@@ -140,35 +164,13 @@ class BreadcrumbsDatabase(MySQLDatabase):
         """
         self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
 
-    def add_pending_domain_job(self, domain_url: str) -> None:
-        """
-        Increase the count of pending jobs spawning from this root domain
-
-        :param domain_url: URL of root domain job was spawned from
-        """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute(f"""
-                    UPDATE {Table.DOMAIN.value}
-                    SET pending_jobs = pending_jobs + 1
-                    WHERE url = %s;
-                """, (domain_url,))
-                conn.commit()
-
-    def complete_pending_domain_job(self, domain_url: str) -> None:
-        """
-        Complete / decrease the count of pending jobs spawning from this root domain
-
-        :param domain_url: URL of root domain job was spawned from
-        """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute(f"""
-                    UPDATE {Table.DOMAIN.value}
-                    SET pending_jobs = pending_jobs - 1
-                    WHERE url = %s;
-                """, (domain_url,))
-                conn.commit()
+    def update_jar_status(self, jar_id: str, status: Stage | FinalStatus) -> None:
+        updates = [('status', status.value)]
+        # add process status if done
+        if status == FinalStatus.DONE:
+            updates.append(('last_processed', datetime.now(timezone.utc)))
+        # update db
+        self._upsert(Table.JAR, [('jar_id', jar_id)], updates)
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """

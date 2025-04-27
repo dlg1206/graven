@@ -3,16 +3,14 @@ import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from enum import Enum
-from queue import LifoQueue, Queue
+from queue import LifoQueue
 from threading import Event
 from typing import List
 
 import requests
 from requests import RequestException
 
-from db.cve_breadcrumbs_database import BreadcrumbsDatabase, Stage, CrawlStatus
-from qmodel.message import Message
+from db.graven_database import GravenDatabase, Stage, CrawlStatus
 from shared.logger import logger
 from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
 
@@ -28,9 +26,9 @@ MAVEN_HTML_REGEX = re.compile(
 
 
 class CrawlerWorker:
-    def __init__(self, stop_flag: Event, database: BreadcrumbsDatabase,
-                 download_queue: Queue[Message],
-                 crawler_done_flag: Event,
+    def __init__(self, stop_flag: Event, database: GravenDatabase,
+                 crawler_first_hit_flag: Event | None,
+                 crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
                  update_jar: bool = False,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
@@ -39,8 +37,8 @@ class CrawlerWorker:
 
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
-        :param download_queue: The shared queue to place jar urls once found
-        :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
+        :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
+        :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
@@ -50,7 +48,7 @@ class CrawlerWorker:
         self._update_domain = update_domain
         self._update_jar = update_jar
         self._crawl_queue = LifoQueue()
-        self._download_queue = download_queue
+        self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._timer = Timer()
@@ -84,10 +82,12 @@ class CrawlerWorker:
                     continue
 
                 # save domain, jar url, and timestamp
-                message = Message(self._current_domain, download_url,
-                                  datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
-                self._download_queue.put(message)
-                self._database.add_pending_domain_job(self._current_domain)
+                self._database.upsert_jar(self._run_id,
+                                          download_url,
+                                          datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
+                # set if first hit
+                if self._crawler_first_hit_flag and not self._crawler_first_hit_flag.is_set():
+                    self._crawler_first_hit_flag.set()
                 logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                                  f"Found jar url | {download_url}")
 
@@ -150,7 +150,8 @@ class CrawlerWorker:
                             self._database.start_domain(url, datetime.now(timezone.utc))
                             logger.debug_msg(f"Start crawler domain '{self._current_domain}'")
                         # skip if already in progress or if complete and not updating
-                        elif crawl_status == CrawlStatus.IN_PROGRESS or (crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
+                        elif crawl_status == CrawlStatus.IN_PROGRESS or (
+                                crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
                             logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
                             self._crawl_queue.task_done()
                             continue
@@ -177,13 +178,15 @@ class CrawlerWorker:
                         logger.info(f"Crawler exhausted '{self._current_domain}'. Restarting with '{new_root}'")
                         self._current_domain = new_root
                         # init if updating or dne
-                        if self._update_domain or self._database.get_domain_status(self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
+                        if self._update_domain or self._database.get_domain_status(
+                                self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
                             self._database.init_domain(self._run_id, self._current_domain)
                             logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
                         self._crawl_queue.put(self._current_domain)
                         continue
                     # else exit
                     break
+
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -191,6 +194,12 @@ class CrawlerWorker:
         else:
             logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
             concurrent.futures.wait(tasks)
+        # indicate the crawler is finished
+        if self._crawler_done_flag:
+            self._crawler_done_flag.set()
+        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        if self._crawler_first_hit_flag:
+            self._crawler_first_hit_flag.set()
 
     def print_statistics_message(self) -> None:
         """
@@ -222,6 +231,6 @@ class CrawlerWorker:
         # crawl
         self._crawl(seed_urls)
         # done
-        self._crawler_done_flag.set()  # signal no more urls
+        self._crawler_first_hit_flag.set()
         self._timer.stop()
         self.print_statistics_message()
