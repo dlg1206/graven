@@ -9,9 +9,8 @@ from typing import List
 import requests
 from bs4 import BeautifulSoup
 
-from db.graven_database import GravenDatabase, Stage
+from db.graven_database import GravenDatabase
 from shared.logger import logger
-from shared.utils import first_time_wait_for_tasks
 
 """
 file: nvd_mitre.py
@@ -65,8 +64,7 @@ class CVENotFoundError(IOError):
 
 
 class NVDMitreWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase, cve_queue: Queue[str],
-                 analyzer_done_flag: Event):
+    def __init__(self, stop_flag: Event, database: GravenDatabase, cve_queue: Queue[str | None]):
         """
         Create a new NVD and Mitre Worker
 
@@ -75,13 +73,10 @@ class NVDMitreWorker:
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param cve_queue: Queue of cves to process
-        :param analyzer_done_flag: Flag to indicate the analyzer has finished running
-
         """
         self._stop_flag = stop_flag
         self._database = database
         self._cve_queue = cve_queue
-        self._analyzer_done_flag = analyzer_done_flag
         # determine sleep if key is available
         self._api_key_available = True if os.getenv('NVD_API_KEY') else False
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
@@ -167,14 +162,15 @@ class NVDMitreWorker:
         Retrieve CVE data from NVD as new CVEs are discovered
         """
         # block until items to process
-        first_time_wait_for_tasks("NVD", self._cve_queue, self._analyzer_done_flag)
+        # first_time_wait_for_tasks("NVD", self._cve_queue, self._analyzer_done_flag)
+        # todo - waiting logic
 
-        # run while the analyzer is still running or still tasks to process
-        nvd_result = None
         while not self._stop_flag.is_set():
-            # logger.info(self._stop_flag.is_set())
             try:
                 cve_id = self._cve_queue.get(timeout=1)
+                # break if poison pill - ie no more jobs
+                if not cve_id:
+                    break
                 # if new id, fetch and save results
                 nvd_result = self._fetch_cve(cve_id)
                 self._database.upsert_cve(self._run_id, cve_id, cvss=nvd_result.cvss,
@@ -199,17 +195,8 @@ class NVDMitreWorker:
                 To prevent deadlocks, the forced timeout with throw this error 
                 for another iteration of the loop to check conditions
                 """
-                # break if nothing new and nothing left
-                if self._analyzer_done_flag.is_set() and self._cve_queue.empty():
-                    break
-            except Exception as e:
-                logger.error_exp(e)
-                url = None
-                if nvd_result:
-                    url = nvd_result.source
+                continue
 
-                self._database.log_error(self._run_id, Stage.NVD, url, e, "Failed during loop")
-                self._cve_queue.task_done()  # ensure task is marked even if failed to prevent deadlock
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")

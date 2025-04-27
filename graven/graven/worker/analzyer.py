@@ -13,7 +13,6 @@ from db.graven_database import GravenDatabase, Stage
 from qmodel.file import GrypeFile, SyftFile
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import first_time_wait_for_tasks
 
 """
 File: analyzer.py
@@ -39,10 +38,8 @@ class NoArtifactsFoundError(ValueError):
 
 class AnalyzerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 analyze_queue: Queue[Message],
-                 cve_queue: Queue[str],
-                 scanner_done_flag: Event,
-                 analyzer_done_flag: Event,
+                 analyze_queue: Queue[Message | None],
+                 cve_queue: Queue[str | None],
                  max_threads: int = DEFAULT_MAX_ANALYZER_THREADS):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
@@ -50,15 +47,12 @@ class AnalyzerWorker:
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param analyze_queue: Queue of items to save to the database
-        :param scanner_done_flag: Flag to indicate the scanner has finished running
         :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
         """
         self._stop_flag = stop_flag
         self._database = database
         self._analyze_queue = analyze_queue
         self._cve_queue = cve_queue
-        self._scanner_done_flag = scanner_done_flag
-        self._analyzer_done_flag = analyzer_done_flag
         self._max_threads = max_threads
 
         self._run_id = None
@@ -97,6 +91,7 @@ class AnalyzerWorker:
         # todo - assume first item is always root
         artifacts = syft_data['artifacts']
         # ensure artifacts to process
+        # todo - remove
         if len(artifacts) == 0:
             raise NoArtifactsFoundError()
         root_id = artifacts[0]['id']
@@ -108,7 +103,7 @@ class AnalyzerWorker:
             logger.debug_msg(f"{syft_file.file_path} does not contain any direct dependencies, skipping. . .")
             return
 
-        # save any additional arifact information
+        # save any additional artifact information
         for artifact in artifacts[1:]:
             # only care about direct deps for now
             if artifact['id'] not in direct_dependency_ids:
@@ -211,33 +206,25 @@ class AnalyzerWorker:
         """
         Start the analyzer worker
         """
-        message = None
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            first_time_wait_for_tasks("Analyzer", self._analyze_queue,
-                                      self._scanner_done_flag)  # block until items to process
-            # while the scanner is still running or still tasks to process
+            # first_time_wait_for_tasks("Analyzer", self._analyze_queue, self._scanner_done_flag)  # block until items to process
+            # todo - waiting logic
             while not self._stop_flag.is_set():
-                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
+                    # break if poison pill - ie no more jobs
+                    if not message:
+                        break
                     # scan
                     tasks.append(exe.submit(self._process_message, message))
                 except Empty:
                     """
-                    To prevent deadlocks, the forced timeout with throw this error
+                    To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    if self._scanner_done_flag.is_set() and self._analyze_queue.empty():
-                        break
-                except Exception as e:
-                    logger.error_exp(e)
-                    url = None
-                    if message:
-                        url = message.jar_url
-                        message.close()
+                    continue
 
-                    self._database.log_error(self._run_id, Stage.ANALYZER, url, e, "Failed during loop")
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -246,7 +233,7 @@ class AnalyzerWorker:
             logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
             concurrent.futures.wait(tasks)
             logger.info(f"All files processed, exiting. . .")
-        self._analyzer_done_flag.set()  # signal no tasks
+        self._cve_queue.put(None)  # poison queue to signal stop
 
     def start(self, run_id: int) -> None:
         """

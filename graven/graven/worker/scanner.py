@@ -8,7 +8,7 @@ from anchore.grype import GrypeScanFailure, Grype
 from db.graven_database import Stage, GravenDatabase
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer, first_time_wait_for_tasks
+from shared.utils import Timer
 
 """
 File: scanner.py
@@ -24,10 +24,8 @@ DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
 class ScannerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
                  grype: Grype,
-                 scan_queue: Queue[Message],
-                 analyzer_queue: Queue[Message],
-                 generator_done_flag: Event,
-                 scanner_done_flag: Event,
+                 scan_queue: Queue[Message | None],
+                 analyzer_queue: Queue[Message | None],
                  max_threads: int = DEFAULT_MAX_SCANNER_THREADS):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
@@ -37,8 +35,6 @@ class ScannerWorker:
         :param grype: Grype interface to use for scanning
         :param scan_queue: Queue of scan messages to scan
         :param analyzer_queue: Queue of results to eventually write to the database
-        :param generator_done_flag: Flag to indicate to rest of pipeline that the generator is finished
-        :param scanner_done_flag: Flag to indicate to rest of pipeline that the scanner is finished
         :param max_threads: Max number of grype scans that can be made at once (default: ceil(os.cpu_count() / 3))
         """
         self._stop_flag = stop_flag
@@ -46,8 +42,6 @@ class ScannerWorker:
         self._grype = grype
         self._scan_queue = scan_queue
         self._analyze_queue = analyzer_queue
-        self._generator_done_flag = generator_done_flag
-        self._scanner_done_flag = scanner_done_flag
         self._max_threads = max_threads
 
         self._timer = Timer()
@@ -105,15 +99,16 @@ class ScannerWorker:
         """
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            first_time_wait_for_tasks("Scanner", self._scan_queue,
-                                      self._generator_done_flag)  # block until items to process
+            # first_time_wait_for_tasks("Scanner", self._scan_queue, self._generator_done_flag)  # block until items to process
+            # todo - waiting logic
             self._timer.start()
-            # run while the generator is still running or still tasks to process
-            message = None
+
             while not self._stop_flag.is_set():
-                # logger.info(self._stop_flag.is_set())
                 try:
                     message = self._scan_queue.get_nowait()
+                    # break if poison pill - ie no more jobs
+                    if not message:
+                        break
                     # scan
                     tasks.append(exe.submit(self._process_message, message, work_dir_path))
                 except Empty:
@@ -121,17 +116,8 @@ class ScannerWorker:
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    # exit if no new tasks and completed all remaining
-                    if self._generator_done_flag.is_set() and self._scan_queue.empty():
-                        break
-                except Exception as e:
-                    logger.error_exp(e)
-                    url = None
-                    if message:
-                        url = message.jar_url
-                        message.close()
+                    continue
 
-                    self._database.log_error(self._run_id, Stage.SCANNER, url, e, "Failed during loop")
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -140,7 +126,7 @@ class ScannerWorker:
             logger.warn(f"No more SBOMs to scan, waiting for scans to finish. . .")
             concurrent.futures.wait(tasks)
             logger.info(f"All SBOMs scanned, exiting. . .")
-        self._scanner_done_flag.set()  # signal no tasks
+        self._analyze_queue.put(None)  # poison queue to signal stop
 
     def print_statistics_message(self) -> None:
         """

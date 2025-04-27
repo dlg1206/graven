@@ -28,7 +28,7 @@ MAVEN_HTML_REGEX = re.compile(
 
 class CrawlerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 download_queue: Queue[Message],
+                 download_queue: Queue[Message | None],
                  crawler_done_flag: Event,
                  update_domain: bool = False,
                  update_jar: bool = False,
@@ -223,6 +223,7 @@ class CrawlerWorker:
         # crawl
         self._crawl(seed_urls)
         # done
-        self._crawler_done_flag.set()  # signal no more urls
+        self._download_queue.put(None)  # poison queue to signal stop
+        self._crawler_done_flag.set()
         self._timer.stop()
         self.print_statistics_message()

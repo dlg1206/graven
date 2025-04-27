@@ -40,23 +40,19 @@ class WorkerFactory:
         self._crawler_done_flag = Event()
 
         # shared downloader objects
-        self._download_queue: Queue[Message] = Queue()
-        self._downloader_done_flag = Event()
+        self._download_queue: Queue[Message | None] = Queue()
 
         # shared generator objects
-        self._generator_queue: Queue[Message] = Queue()
-        self._generator_done_flag = Event()
+        self._generator_queue: Queue[Message | None] = Queue()
 
         # shared scanner objects
-        self._scan_queue: Queue[Message] = Queue()
-        self._scan_done_flag = Event()
+        self._scan_queue: Queue[Message | None] = Queue()
 
         # shared analyzer objects
-        self._analyze_queue: Queue[Message] = Queue()
-        self._analyzer_done_flag = Event()
+        self._analyze_queue: Queue[Message | None] = Queue()
 
         # shared nvd objects
-        self._cve_queue: Queue[str] = Queue()
+        self._cve_queue: Queue[str | None] = Queue()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool,
                               update_jar: bool) -> CrawlerWorker:
@@ -81,8 +77,7 @@ class WorkerFactory:
         :return: DownloaderWorker
         """
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._download_queue, self._generator_queue,
-                                self._crawler_done_flag, self._downloader_done_flag,
-                                max_concurrent_requests, download_limit)
+                                self._crawler_done_flag, max_concurrent_requests, download_limit)
 
     def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
         """
@@ -98,7 +93,7 @@ class WorkerFactory:
         else:
             syft = Syft()
         return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue,
-                               self._downloader_done_flag, self._generator_done_flag, max_threads)
+                               max_threads)
 
     def create_scanner_worker(self, max_threads: int, grype_path: str = None,
                               grype_db_source: str = None) -> ScannerWorker:
@@ -116,7 +111,7 @@ class WorkerFactory:
         else:
             grype = Grype(grype_db_source)
         return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyze_queue,
-                             self._generator_done_flag, self._scan_done_flag, max_threads)
+                             max_threads)
 
     def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
         """
@@ -126,7 +121,7 @@ class WorkerFactory:
         :return: AnalyzerWorker
         """
         return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyze_queue, self._cve_queue,
-                              self._scan_done_flag, self._analyzer_done_flag, max_threads)
+                              max_threads)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, seed_urls: List[str]) -> int:
@@ -142,8 +137,8 @@ class WorkerFactory:
         :return: Exit code
         """
         logger.info("Launching Graven worker threads...")
-        vuln_worker = NVDMitreWorker(self._interrupt_stop_flag, self._database, self._cve_queue,
-                                     self._analyzer_done_flag)  # for getting cve details
+        vuln_worker = NVDMitreWorker(self._interrupt_stop_flag, self._database,
+                                     self._cve_queue)  # for getting cve details
         exit_code = 0  # assume ok
         run_id = self._database.log_run_start(generator.get_syft_version(),
                                               scanner.get_grype_version(),

@@ -28,10 +28,9 @@ DOWNLOAD_QUEUE_TIMEOUT = 1
 
 class DownloaderWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 download_queue: Queue[Message],
-                 generator_queue: Queue[Message],
+                 download_queue: Queue[Message | None],
+                 generator_queue: Queue[Message | None],
                  crawler_done_flag: Event,
-                 downloader_done_flag: Event,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
                  download_limit: int = DEFAULT_MAX_JAR_LIMIT
                  ):
@@ -43,7 +42,6 @@ class DownloaderWorker:
         :param download_queue: Queue to pop urls of jars to download from
         :param generator_queue: Queue of paths to jars to generate SBOMs for
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
-        :param downloader_done_flag: Flag to indicate to rest of pipeline that the downloader is finished
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :param download_limit: Max number of jars to be downloaded at one time
         """
@@ -52,7 +50,6 @@ class DownloaderWorker:
         self._download_queue = download_queue
         self._generator_queue = generator_queue
         self._crawler_done_flag = crawler_done_flag
-        self._downloader_done_flag = downloader_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._download_limit = Semaphore(download_limit)
 
@@ -128,7 +125,6 @@ class DownloaderWorker:
             self._timer.start()
             # run while the crawler is still running or still tasks to process
             while not self._stop_flag.is_set():
-                # logger.info(self._stop_flag.is_set())
                 try:
                     # limit the max number of jars on system at one time
                     if not self._download_limit.acquire(timeout=30):
@@ -136,18 +132,20 @@ class DownloaderWorker:
                         continue
 
                     message = self._download_queue.get_nowait()
+                    # break if poison pill - ie no more jobs
+                    if not message:
+                        self._download_limit.release()
+                        break
+
                     # download jar
                     tasks.append(exe.submit(self._process_message, message, work_dir_path))
-
                 except queue.Empty:
                     """
                     To prevent deadlocks, the forced timeout with throw this error 
                     for another iteration of the loop to check conditions
                     """
-                    self._download_limit.release()  # release to try again
-                    # exit if no new tasks and completed all remaining
-                    if self._crawler_done_flag.is_set() and self._download_queue.empty():
-                        break
+                    continue
+
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -156,7 +154,7 @@ class DownloaderWorker:
             logger.warn(f"No more jars to download, waiting for remaining tasks to finish. . .")
             concurrent.futures.wait(tasks)
             logger.info(f"All downloads finished, exiting. . .")
-        self._downloader_done_flag.set()  # signal no more jars
+        self._generator_queue.put(None)  # poison queue to signal stop
 
     def print_statistics_message(self) -> None:
         """
