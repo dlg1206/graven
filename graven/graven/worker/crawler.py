@@ -3,7 +3,7 @@ import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from queue import LifoQueue, Queue
+from queue import LifoQueue
 from threading import Event
 from typing import List
 
@@ -11,7 +11,6 @@ import requests
 from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
-from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
 
@@ -28,7 +27,6 @@ MAVEN_HTML_REGEX = re.compile(
 
 class CrawlerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 download_queue: Queue[Message | None],
                  crawler_done_flag: Event,
                  update_domain: bool = False,
                  update_jar: bool = False,
@@ -38,7 +36,6 @@ class CrawlerWorker:
 
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
-        :param download_queue: The shared queue to place jar urls once found
         :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
@@ -49,7 +46,6 @@ class CrawlerWorker:
         self._update_domain = update_domain
         self._update_jar = update_jar
         self._crawl_queue = LifoQueue()
-        self._download_queue = download_queue
         self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._timer = Timer()
@@ -83,10 +79,9 @@ class CrawlerWorker:
                     continue
 
                 # save domain, jar url, and timestamp
-                message = Message(self._current_domain, download_url,
-                                  datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
-                self._download_queue.put(message)
-                self._database.add_pending_domain_job(self._current_domain)
+                self._database.upsert_jar(self._run_id,
+                                          download_url,
+                                          datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
                 logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                                  f"Found jar url | {download_url}")
 
@@ -223,7 +218,6 @@ class CrawlerWorker:
         # crawl
         self._crawl(seed_urls)
         # done
-        self._download_queue.put(None)  # poison queue to signal stop
         self._crawler_done_flag.set()
         self._timer.stop()
         self.print_statistics_message()

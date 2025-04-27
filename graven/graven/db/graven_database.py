@@ -6,6 +6,7 @@ from typing import Dict, Any
 from mysql.connector import ProgrammingError, DatabaseError
 
 from db.database import MySQLDatabase, Table, JoinTable
+from qmodel.message import Message
 from shared.logger import logger
 
 """
@@ -28,16 +29,25 @@ class CrawlStatus(Enum):
     COMPLETED = "COMPLETED"
 
 
+class FinalStatus(Enum):
+    DONE = "DONE"
+    ERROR = "ERROR"
+
+
 class Stage(Enum):
     """
-    Stage enums - max is 5 chars
+    Stage enums
     """
     CRAWLER = "CRAWL"
-    DOWNLOADER = "DWNLD"
-    GENERATOR = "GENER"
-    SCANNER = "SCANR"
-    ANALYZER = "ALYZR"
-    NVD = "NVDAP"
+    TRN_DB_DWN = "0_TRN_DATABASE_DOWNLOAD"
+    DOWNLOADER = "1_DOWNLOAD"
+    TRN_DWN_GEN = "2_TRN_DOWNLOAD_GENERATOR"
+    GENERATOR = "3_GENERATOR"
+    TRN_GEN_SCN = "4_TRN_GENERATOR_SCANNER"
+    SCANNER = "5_SCANNER"
+    TRN_SCN_ANL = "6_TRN_SCANNER_ANALYZER"
+    ANALYZER = "7_ANALYZER"
+    VULN = "VULN"
 
 
 class GravenDatabase(MySQLDatabase):
@@ -89,6 +99,20 @@ class GravenDatabase(MySQLDatabase):
         """
         return len(self._select(Table.ARTIFACT, where_equals=[('purl', purl)])) != 0
 
+    def get_message_for_update(self) -> Message | None:
+        # todo - option to get completed or failed jars
+        with self._open_connection() as conn:
+            with self._get_cursor(conn) as cur:
+                cur.execute("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED;")
+                result = cur.fetchone()
+                # return none if no jobs
+                if not result:
+                    return None
+                # else mark in progress
+                cur.execute("UPDATE jar SET status = %s WHERE jar_id = %s;", (Stage.TRN_DB_DWN.value, result[1]))
+                conn.commit()
+        return Message(f"{MAVEN_CENTRAL_ROOT}{result[0]}", result[1])
+
     def get_domain_status(self, domain_url: str) -> CrawlStatus:
         """
         Check if the database has seen these domains before
@@ -139,6 +163,9 @@ class GravenDatabase(MySQLDatabase):
         :param crawl_end: Timestamp of when crawl ended
         """
         self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
+
+    def update_jar_status(self, jar_id: str, status: Stage | FinalStatus) -> None:
+        self._upsert(Table.JAR, [('jar_id', jar_id)], [('status', status.value)])
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """

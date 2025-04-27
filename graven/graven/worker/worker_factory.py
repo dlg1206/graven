@@ -39,9 +39,6 @@ class WorkerFactory:
         # shared crawler objects
         self._crawler_done_flag = Event()
 
-        # shared downloader objects
-        self._download_queue: Queue[Message | None] = Queue()
-
         # shared generator objects
         self._generator_queue: Queue[Message | None] = Queue()
 
@@ -65,7 +62,7 @@ class WorkerFactory:
         :return: CrawlerWorker
         """
 
-        return CrawlerWorker(self._interrupt_stop_flag, self._database, self._download_queue,
+        return CrawlerWorker(self._interrupt_stop_flag, self._database,
                              self._crawler_done_flag, update_domain, update_jar, max_concurrent_requests)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
@@ -76,7 +73,7 @@ class WorkerFactory:
         :param download_limit: Max number of jars to be downloaded at one time
         :return: DownloaderWorker
         """
-        return DownloaderWorker(self._interrupt_stop_flag, self._database, self._download_queue, self._generator_queue,
+        return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
                                 self._crawler_done_flag, max_concurrent_requests, download_limit)
 
     def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:

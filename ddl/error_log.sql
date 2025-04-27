@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS error_log
     error_id      INTEGER AUTO_INCREMENT PRIMARY KEY,
     run_id        INTEGER,
     timestamp     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    stage         CHAR(5),
+    stage         VARCHAR(32),
     url           VARCHAR(255),
     error_type    VARCHAR(255),
     error_message VARCHAR(255),

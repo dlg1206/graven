@@ -5,7 +5,7 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.syft import Syft, SyftScanFailure
-from db.graven_database import GravenDatabase, Stage
+from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer
@@ -80,6 +80,7 @@ class GeneratorWorker:
                 self._sboms_generated += 1
                 logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                             f"Generated '{message.syft_file.file_name}'")
+                self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
                 self._scan_queue.put(message)
 
         except SyftScanFailure as e:
@@ -87,11 +88,13 @@ class GeneratorWorker:
             self._database.log_error(self._run_id, Stage.GENERATOR,
                                      message.jar_url, e, details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.GENERATOR, message.jar_url, e,
                                      "error when generating with syft")
             message.syft_file.close()  # remove sbom if generated
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             message.jar_file.close()  # always remove jar
             self._generator_queue.task_done()
@@ -117,6 +120,7 @@ class GeneratorWorker:
                     if not message:
                         break
                     # scan
+                    self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
                     tasks.append(exe.submit(self._process_message, message, work_dir_path))
                 except Empty:
                     """

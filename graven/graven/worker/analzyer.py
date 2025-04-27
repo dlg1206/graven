@@ -9,7 +9,7 @@ from threading import Event
 
 import zstandard as zstd
 
-from db.graven_database import GravenDatabase, Stage
+from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.file import GrypeFile, SyftFile
 from qmodel.message import Message
 from shared.logger import logger
@@ -168,8 +168,6 @@ class AnalyzerWorker:
             self._analyze_queue.task_done()
             return
         try:
-            # save jar
-            self._database.upsert_jar(self._run_id, message.jar_url, message.publish_date)
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
@@ -191,10 +189,13 @@ class AnalyzerWorker:
                 logger.info(f"Processed '{message.grype_file.file_name}'")
             else:
                 logger.debug_msg(f"{message.grype_file.file_path} file is closed, skipping. . .")
+            # mark as done
+            self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
             logger.info(f"Saved {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.ANALYZER, message.jar_url, e, "error when parsing results")
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # remove any remaining files
             if message:
@@ -216,6 +217,7 @@ class AnalyzerWorker:
                     if not message:
                         break
                     # scan
+                    self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
                     tasks.append(exe.submit(self._process_message, message))
                 except Empty:
                     """

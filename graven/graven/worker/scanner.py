@@ -5,7 +5,7 @@ from queue import Queue, Empty
 from threading import Event
 
 from anchore.grype import GrypeScanFailure, Grype
-from db.graven_database import Stage, GravenDatabase
+from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
 from shared.utils import Timer
@@ -75,16 +75,19 @@ class ScannerWorker:
                 logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                             f"Generated '{message.grype_file.file_name}'")
             # then pass down pipeline
+            self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
             self._analyze_queue.put(message)
             self._sboms_scanned += 1
         except GrypeScanFailure as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "grype failed to scan")
             message.close()
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "error when scanning with grype")
             message.close()
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             self._scan_queue.task_done()
 
@@ -108,6 +111,7 @@ class ScannerWorker:
                     if not message:
                         break
                     # scan
+                    self._database.update_jar_status(message.jar_id, Stage.SCANNER)
                     tasks.append(exe.submit(self._process_message, message, work_dir_path))
                 except Empty:
                     """
