@@ -81,12 +81,10 @@ class ScannerWorker:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "grype failed to scan")
             message.close()
-            self._database.complete_pending_domain_job(message.domain_url)
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.SCANNER, message.jar_url, e, "error when scanning with grype")
             message.close()
-            self._database.complete_pending_domain_job(message.domain_url)
         finally:
             self._scan_queue.task_done()
 

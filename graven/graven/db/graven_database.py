@@ -140,36 +140,6 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
 
-    def add_pending_domain_job(self, domain_url: str) -> None:
-        """
-        Increase the count of pending jobs spawning from this root domain
-
-        :param domain_url: URL of root domain job was spawned from
-        """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute(f"""
-                    UPDATE {Table.DOMAIN.value}
-                    SET pending_jobs = pending_jobs + 1
-                    WHERE url = %s;
-                """, (domain_url,))
-                conn.commit()
-
-    def complete_pending_domain_job(self, domain_url: str) -> None:
-        """
-        Complete / decrease the count of pending jobs spawning from this root domain
-
-        :param domain_url: URL of root domain job was spawned from
-        """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute(f"""
-                    UPDATE {Table.DOMAIN.value}
-                    SET pending_jobs = pending_jobs - 1
-                    WHERE url = %s;
-                """, (domain_url,))
-                conn.commit()
-
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """
         Upsert a syft artifact to the database

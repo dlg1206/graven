@@ -200,7 +200,6 @@ class AnalyzerWorker:
             if message:
                 message.close()
             self._analyze_queue.task_done()
-            self._database.complete_pending_domain_job(message.domain_url)
 
     def _analyze(self) -> None:
         """
