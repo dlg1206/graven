@@ -27,7 +27,7 @@ MAVEN_HTML_REGEX = re.compile(
 
 class CrawlerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 crawler_done_flag: Event,
+                 crawler_first_hit_flag: Event | None,
                  update_domain: bool = False,
                  update_jar: bool = False,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
@@ -36,7 +36,7 @@ class CrawlerWorker:
 
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
-        :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
+        :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
@@ -46,7 +46,7 @@ class CrawlerWorker:
         self._update_domain = update_domain
         self._update_jar = update_jar
         self._crawl_queue = LifoQueue()
-        self._crawler_done_flag = crawler_done_flag
+        self._crawler_first_hit_flag = crawler_first_hit_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._timer = Timer()
         self._urls_seen = 0
@@ -82,6 +82,9 @@ class CrawlerWorker:
                 self._database.upsert_jar(self._run_id,
                                           download_url,
                                           datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
+                # set if first hit
+                if self._crawler_first_hit_flag and not self._crawler_first_hit_flag.is_set():
+                    self._crawler_first_hit_flag.set()
                 logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                                  f"Found jar url | {download_url}")
 
@@ -180,6 +183,7 @@ class CrawlerWorker:
                         continue
                     # else exit
                     break
+
         # log exit type
         if self._stop_flag.is_set():
             logger.warn(f"Stop order received, exiting. . .")
@@ -187,6 +191,10 @@ class CrawlerWorker:
         else:
             logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
             concurrent.futures.wait(tasks)
+
+        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        if self._crawler_first_hit_flag:
+            self._crawler_first_hit_flag.set()
 
     def print_statistics_message(self) -> None:
         """
@@ -218,6 +226,6 @@ class CrawlerWorker:
         # crawl
         self._crawl(seed_urls)
         # done
-        self._crawler_done_flag.set()
+        self._crawler_first_hit_flag.set()
         self._timer.stop()
         self.print_statistics_message()

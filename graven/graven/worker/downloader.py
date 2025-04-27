@@ -23,13 +23,13 @@ Description: Download jars into temp directories to be scanned
 """
 
 DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
-DOWNLOAD_QUEUE_TIMEOUT = 1
+DOWNLOAD_ACQUIRE_TIMEOUT = 30
 
 
 class DownloaderWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
                  generator_queue: Queue[Message | None],
-                 crawler_done_flag: Event,
+                 crawler_first_hit_flag: Event = None,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
                  download_limit: int = DEFAULT_MAX_JAR_LIMIT
                  ):
@@ -39,14 +39,14 @@ class DownloaderWorker:
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param generator_queue: Queue of paths to jars to generate SBOMs for
-        :param crawler_done_flag: Flag to indicate to rest of pipeline that the crawler is finished
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
-        :param download_limit: Max number of jars to be downloaded at one time
+        :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
+        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (Default: # cores)
+        :param download_limit: Max number of jars to be downloaded at one time (Default: 100)
         """
         self._stop_flag = stop_flag
         self._database = database
         self._generator_queue = generator_queue
-        self._crawler_done_flag = crawler_done_flag
+        self._crawler_first_hit_flag = crawler_first_hit_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._download_limit = Semaphore(download_limit)
 
@@ -115,16 +115,19 @@ class DownloaderWorker:
         """
         tasks = []
         with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
-            # first_time_wait_for_tasks("Downloader", self._download_queue,
-            #                           self._crawler_done_flag)  # block until items to process
-            # todo - block until items to process
-            time.sleep(10)
+            # if using the crawler, wait until find a hit
+            # todo - option to skip wait
+            if self._crawler_first_hit_flag:
+                logger.info("Waiting for jar url to download. . .")
+                self._crawler_first_hit_flag.wait()
+                logger.info("jar url found, starting. . .")
+
             self._timer.start()
             # run while the crawler is still running or still tasks to process
             while not self._stop_flag.is_set():
                 try:
                     # limit the max number of jars on system at one time
-                    if not self._download_limit.acquire(timeout=30):
+                    if not self._download_limit.acquire(timeout=DOWNLOAD_ACQUIRE_TIMEOUT):
                         logger.warn("Failed to acquire lock; retrying. . .")
                         continue
 
