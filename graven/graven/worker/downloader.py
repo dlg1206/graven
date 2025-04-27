@@ -1,5 +1,4 @@
 import concurrent
-import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -24,12 +23,13 @@ Description: Download jars into temp directories to be scanned
 
 DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
 DOWNLOAD_ACQUIRE_TIMEOUT = 30
-
+RETRY_SLEEP = 10
 
 class DownloaderWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
                  generator_queue: Queue[Message | None],
                  crawler_first_hit_flag: Event = None,
+                 crawler_done_flag: Event = None,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
                  download_limit: int = DEFAULT_MAX_JAR_LIMIT
                  ):
@@ -40,6 +40,7 @@ class DownloaderWorker:
         :param database: The database to store any error messages in
         :param generator_queue: Queue of paths to jars to generate SBOMs for
         :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
+        :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once (Default: # cores)
         :param download_limit: Max number of jars to be downloaded at one time (Default: 100)
         """
@@ -47,6 +48,7 @@ class DownloaderWorker:
         self._database = database
         self._generator_queue = generator_queue
         self._crawler_first_hit_flag = crawler_first_hit_flag
+        self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._download_limit = Semaphore(download_limit)
 
@@ -123,29 +125,29 @@ class DownloaderWorker:
                 logger.info("jar url found, starting. . .")
 
             self._timer.start()
-            # run while the crawler is still running or still tasks to process
             while not self._stop_flag.is_set():
-                try:
-                    # limit the max number of jars on system at one time
-                    if not self._download_limit.acquire(timeout=DOWNLOAD_ACQUIRE_TIMEOUT):
-                        logger.warn("Failed to acquire lock; retrying. . .")
-                        continue
 
-                    message = self._database.get_message_for_update()
-                    # break if poison pill - ie no more jobs
-                    if not message:
-                        self._download_limit.release()
-                        break
-
-                    # download jar
-                    self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
-                    tasks.append(exe.submit(self._process_message, message, work_dir_path))
-                except queue.Empty:
-                    """
-                    To prevent deadlocks, the forced timeout with throw this error 
-                    for another iteration of the loop to check conditions
-                    """
+                # limit the max number of jars on system at one time
+                if not self._download_limit.acquire(timeout=DOWNLOAD_ACQUIRE_TIMEOUT):
+                    logger.warn("Failed to acquire lock; retrying. . .")
                     continue
+
+                message = self._database.get_message_for_update()
+                # message is none means no more jobs
+                if not message:
+                    self._download_limit.release()
+                    # not using the crawler or are using and done flag is set - means no more jars will be found
+                    if not self._crawler_done_flag or self._crawler_done_flag.is_set():
+                        break
+                    # else using the crawler and more jars will come
+                    logger.warn(f"Found no jars to download but crawler is still running, sleeping for {RETRY_SLEEP}s. . .")
+                    time.sleep(RETRY_SLEEP)
+                    continue
+
+                # download jar
+                self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
+                tasks.append(exe.submit(self._process_message, message, work_dir_path))
+
 
         # log exit type
         if self._stop_flag.is_set():

@@ -28,6 +28,7 @@ MAVEN_HTML_REGEX = re.compile(
 class CrawlerWorker:
     def __init__(self, stop_flag: Event, database: GravenDatabase,
                  crawler_first_hit_flag: Event | None,
+                 crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
                  update_jar: bool = False,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
@@ -37,6 +38,7 @@ class CrawlerWorker:
         :param stop_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
+        :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
@@ -47,6 +49,7 @@ class CrawlerWorker:
         self._update_jar = update_jar
         self._crawl_queue = LifoQueue()
         self._crawler_first_hit_flag = crawler_first_hit_flag
+        self._crawler_done_flag = crawler_done_flag
         self._max_concurrent_requests = max_concurrent_requests
         self._timer = Timer()
         self._urls_seen = 0
@@ -191,7 +194,9 @@ class CrawlerWorker:
         else:
             logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
             concurrent.futures.wait(tasks)
-
+        # indicate the crawler is finished
+        if self._crawler_done_flag:
+            self._crawler_done_flag.set()
         # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
         if self._crawler_first_hit_flag:
             self._crawler_first_hit_flag.set()

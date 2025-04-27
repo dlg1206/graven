@@ -165,7 +165,12 @@ class GravenDatabase(MySQLDatabase):
         self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
 
     def update_jar_status(self, jar_id: str, status: Stage | FinalStatus) -> None:
-        self._upsert(Table.JAR, [('jar_id', jar_id)], [('status', status.value)])
+        updates = [('status', status.value)]
+        # add process status if done
+        if status == FinalStatus.DONE:
+            updates.append(('last_processed', datetime.now(timezone.utc)))
+        # update db
+        self._upsert(Table.JAR, [('jar_id', jar_id)], updates)
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """

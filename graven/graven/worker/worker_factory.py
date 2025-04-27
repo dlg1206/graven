@@ -38,6 +38,7 @@ class WorkerFactory:
 
         # shared crawler objects
         self._crawler_first_hit_flag = Event()
+        self._crawler_done_flag = Event()
 
         # shared generator objects
         self._generator_queue: Queue[Message | None] = Queue()
@@ -63,7 +64,7 @@ class WorkerFactory:
         """
 
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
-                             self._crawler_first_hit_flag, update_domain, update_jar, max_concurrent_requests)
+                             self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar, max_concurrent_requests)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
         """
@@ -74,7 +75,7 @@ class WorkerFactory:
         :return: DownloaderWorker
         """
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
-                                self._crawler_first_hit_flag, max_concurrent_requests, download_limit)
+                                self._crawler_first_hit_flag, self._crawler_done_flag, max_concurrent_requests, download_limit)
 
     def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
         """
