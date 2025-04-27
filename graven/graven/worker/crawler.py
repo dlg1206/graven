@@ -12,7 +12,8 @@ from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
 from shared.logger import logger
-from shared.utils import Timer, DEFAULT_MAX_CONCURRENT_REQUESTS
+from shared.timer import Timer
+from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 
 """
 File: crawler.py

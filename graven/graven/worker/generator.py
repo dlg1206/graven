@@ -8,7 +8,7 @@ from anchore.syft import Syft, SyftScanFailure
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer
+from shared.timer import Timer
 
 """
 File: generator.py

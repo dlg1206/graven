@@ -8,7 +8,7 @@ from anchore.grype import GrypeScanFailure, Grype
 from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import Timer
+from shared.timer import Timer
 
 """
 File: scanner.py
