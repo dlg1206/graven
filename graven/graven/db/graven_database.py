@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any
 
-from mysql.connector import ProgrammingError, DatabaseError
+from sqlalchemy import text
 
-from db.database import MySQLDatabase, Table, JoinTable
+from db.database import MySQLDatabase, TableEnum, DEFAULT_POOL_SIZE
 from qmodel.message import Message
 from shared.logger import logger
 
@@ -17,9 +17,30 @@ Description: MySQL database interface for CVE-Breadcrumbs database
 @author Derek Garcia
 """
 
-DEFAULT_POOL_SIZE = 32
-
 MAVEN_CENTRAL_ROOT = "https://repo1.maven.org/maven2/"
+
+
+class Table(TableEnum):
+    """
+    Tables that hold data
+    """
+    CVE = "cve"
+    CWE = "cwe"
+    JAR = "jar"
+    SBOM = "sbom"
+    ARTIFACT = "artifact"
+    DOMAIN = "domain"
+    ERROR_LOG = "error_log"
+    RUN_LOG = "run_log"
+
+
+class JoinTable(TableEnum):
+    """
+    Tables that associate data
+    """
+    CVE__CWE = "cve__cwe"
+    JAR__CVE = "jar__cve"
+    SBOM__ARTIFACT = "sbom__artifact"
 
 
 class CrawlStatus(Enum):
@@ -59,7 +80,7 @@ class GravenDatabase(MySQLDatabase):
         """
         try:
             super().__init__(pool_size)
-        except (ProgrammingError, DatabaseError) as e:
+        except Exception as e:
             logger.fatal(e)
         logger.info("Connected to the database")
 
@@ -70,7 +91,9 @@ class GravenDatabase(MySQLDatabase):
         :param url: URL to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.JAR, where_equals=[('uri', url.removeprefix(MAVEN_CENTRAL_ROOT))])) != 0
+        return len(self._select(Table.JAR,
+                                where_equals={'uri': url.removeprefix(MAVEN_CENTRAL_ROOT)},
+                                fetch_all=False)) != 0
 
     def has_seen_cve(self, cve_id: str) -> bool:
         """
@@ -79,7 +102,7 @@ class GravenDatabase(MySQLDatabase):
         :param cve_id: CVE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CVE, where_equals=[('cve_id', cve_id)])) != 0
+        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id}, fetch_all=False)) != 0
 
     def has_seen_cwe(self, cwe_id: str) -> bool:
         """
@@ -88,7 +111,7 @@ class GravenDatabase(MySQLDatabase):
         :param cwe_id: CWE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CWE, where_equals=[('cwe_id', cwe_id)])) != 0
+        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id}, fetch_all=False)) != 0
 
     def has_seen_purl(self, purl: str) -> bool:
         """
@@ -97,20 +120,26 @@ class GravenDatabase(MySQLDatabase):
         :param purl: purl to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.ARTIFACT, where_equals=[('purl', purl)])) != 0
+        return len(self._select(Table.ARTIFACT, where_equals={'purl': purl}, fetch_all=False)) != 0
 
     def get_message_for_update(self) -> Message | None:
+        """
+        Get a jar that has not been process and lock for update
+
         # todo - option to get completed or failed jars
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED;")
-                result = cur.fetchone()
-                # return none if no jobs
-                if not result:
-                    return None
-                # else mark in progress
-                cur.execute("UPDATE jar SET status = %s WHERE jar_id = %s;", (Stage.TRN_DB_DWN.value, result[1]))
-                conn.commit()
+        """
+
+        with self._engine.begin() as conn:
+            # get jar to process
+            result = conn.execute(text("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1;")).fetchone()
+            # return none if no jobs
+            if not result:
+                return None
+            # else mark in progress
+            conn.execute(
+                text("UPDATE jar SET status = :status WHERE jar_id = :jar_id"),
+                {"status": Stage.TRN_DB_DWN.value, "jar_id": result.jar_id}
+            )
         return Message(f"{MAVEN_CENTRAL_ROOT}{result[0]}", result[1])
 
     def get_domain_status(self, domain_url: str) -> CrawlStatus:
@@ -120,7 +149,7 @@ class GravenDatabase(MySQLDatabase):
         :param domain_url: URL to check
         :return: Crawler status
         """
-        domains = self._select(Table.DOMAIN, ['crawl_start', 'crawl_end'], where_equals=[('url', domain_url)])
+        domains = self._select(Table.DOMAIN, ['crawl_start', 'crawl_end'], where_equals={'url': domain_url})
         # domain has never been explored
         if len(domains) == 0:
             return CrawlStatus.DOES_NOT_EXIST
@@ -142,7 +171,7 @@ class GravenDatabase(MySQLDatabase):
         :param run_id: ID of the jar and scan was done in
         :param domain_url: URL of root domain starting to crawl
         """
-        self._upsert(Table.DOMAIN, [('url', domain_url)], [('run_id', run_id)])
+        self._upsert(Table.DOMAIN, {'url': domain_url}, {'run_id': run_id})
 
     def start_domain(self, domain_url: str, crawl_start: datetime) -> None:
         """
@@ -152,7 +181,7 @@ class GravenDatabase(MySQLDatabase):
         :param crawl_start: Timestamp of when crawl started
         """
         # reset end time
-        self._upsert(Table.DOMAIN, [('url', domain_url)], [('crawl_start', crawl_start), ('crawl_end', None)])
+        self._upsert(Table.DOMAIN, {'url': domain_url}, {'crawl_start': crawl_start, 'crawl_end': None})
 
     def complete_domain(self, run_id: int, domain_url: str, crawl_end: datetime) -> None:
         """
@@ -162,15 +191,15 @@ class GravenDatabase(MySQLDatabase):
         :param domain_url: URL of root domain fully crawled
         :param crawl_end: Timestamp of when crawl ended
         """
-        self._upsert(Table.DOMAIN, [('url', domain_url), ('run_id', run_id)], [('crawl_end', crawl_end)])
+        self._upsert(Table.DOMAIN, {'url': domain_url, 'run_id': run_id}, {'crawl_end': crawl_end})
 
     def update_jar_status(self, jar_id: str, status: Stage | FinalStatus) -> None:
-        updates = [('status', status.value)]
+        updates = {'status': status.value}
         # add process status if done
         if status == FinalStatus.DONE:
-            updates.append(('last_processed', datetime.now(timezone.utc)))
+            updates['last_processed'] = datetime.now(timezone.utc)
         # update db
-        self._upsert(Table.JAR, [('jar_id', jar_id)], updates)
+        self._upsert(Table.JAR, {'jar_id': jar_id}, updates)
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """
@@ -180,7 +209,7 @@ class GravenDatabase(MySQLDatabase):
         :param purl: purl of artifact to update
         :param kwargs: table key value pairs to update the database with
         """
-        self._upsert(Table.ARTIFACT, [('purl', purl)], [('run_id', run_id)] + list(kwargs.items()))
+        self._upsert(Table.ARTIFACT, {'purl': purl}, {'run_id': run_id, **kwargs})
 
     def upsert_cve(self, run_id: int, cve_id: str, **kwargs: str | int | float | datetime) -> None:
         """
@@ -190,7 +219,7 @@ class GravenDatabase(MySQLDatabase):
         :param cve_id: CVE id to update
         :param kwargs: table key value pairs to update the database with
         """
-        self._upsert(Table.CVE, [('cve_id', cve_id)], [('run_id', run_id)] + list(kwargs.items()))
+        self._upsert(Table.CVE, {'cve_id': cve_id}, {'run_id': run_id, **kwargs})
 
     def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: str) -> None:
         """
@@ -200,7 +229,7 @@ class GravenDatabase(MySQLDatabase):
         :param cwe_id: CWE id to update
         :param kwargs: table key value pairs to update the database with
         """
-        self._upsert(Table.CWE, [('cwe_id', cwe_id)], [('run_id', run_id)] + list(kwargs.items()))
+        self._upsert(Table.CWE, {'cwe_id': cwe_id}, {'run_id': run_id, **kwargs})
 
     def upsert_jar(self, run_id: int, jar_url: str, published_date: datetime) -> None:
         """
@@ -213,15 +242,15 @@ class GravenDatabase(MySQLDatabase):
         components = jar_url.replace(MAVEN_CENTRAL_ROOT, "").split("/")
         jar_id = components[-1]
         # add jar
-        inserts = [
-            ('run_id', run_id),
-            ('uri', jar_url.replace(MAVEN_CENTRAL_ROOT, "")),
-            ('group_id', ".".join(components[:-3])),
-            ('artifact_id', components[-3]),
-            ('version', components[-2]),
-            ('publish_date', published_date)
-        ]
-        self._upsert(Table.JAR, [('jar_id', jar_id)], inserts)
+        inserts = {
+            'run_id': run_id,
+            'uri': jar_url.replace(MAVEN_CENTRAL_ROOT, ""),
+            'group_id': ".".join(components[:-3]),
+            'artifact_id': components[-3],
+            'version': components[-2],
+            'publish_date': published_date
+        }
+        self._upsert(Table.JAR, {'jar_id': jar_id}, inserts)
 
     def upsert_jar_last_grype_scan(self, run_id: int, jar_id: str, last_grype_scan: datetime) -> None:
         """
@@ -231,7 +260,7 @@ class GravenDatabase(MySQLDatabase):
         :param jar_id: id of the jar being scanned
         :param last_grype_scan: timestamp string of the last scan
         """
-        self._upsert(Table.JAR, [('jar_id', jar_id)], [('run_id', run_id), ('last_grype_scan', last_grype_scan)])
+        self._upsert(Table.JAR, {'jar_id': jar_id}, {'run_id': run_id, 'last_grype_scan': last_grype_scan})
 
     def upsert_sbom_blob(self, run_id: int, jar_id: str, sbom_blob: bytes) -> None:
         """
@@ -241,18 +270,19 @@ class GravenDatabase(MySQLDatabase):
         :param jar_id: id of the jar sbom belongs to
         :param sbom_blob: compressed binary
         """
-        self._upsert(Table.SBOM, [('jar_id', jar_id)], [('run_id', run_id), ('sbom', sbom_blob)])
+        self._upsert(Table.SBOM, {'jar_id': jar_id}, {'run_id': run_id, 'sbom': sbom_blob})
 
-    def associate_cve_and_cwe(self, cve_id: str, cwe_id: str) -> None:
+    def associate_cve_and_cwe(self, run_id: int, cve_id: str, cwe_id: str) -> None:
         """
         Save a cve and cwe that impacts it
         CVE must exist in db prior, but CWE is updated if dne
 
+        :param run_id: Run id this was done
         :param cve_id: id of cve
         :param cwe_id: id of cwe
         """
-        self._insert(Table.CWE, [('cwe_id', cwe_id)])
-        self._insert(JoinTable.CVE__CWE, [('cve_id', cve_id), ('cwe_id', cwe_id)])
+        self._insert(Table.CWE, {'cwe_id': cwe_id})
+        self._insert(JoinTable.CVE__CWE, {'run_id': run_id, 'cve_id': cve_id, 'cwe_id': cwe_id})
 
     def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
         """
@@ -263,7 +293,7 @@ class GravenDatabase(MySQLDatabase):
         :param jar_id: id of jar
         :param cve_id: id of cve
         """
-        self._upsert(JoinTable.JAR__CVE, [('jar_id', jar_id), ('cve_id', cve_id)], [('run_id', run_id)])
+        self._upsert(JoinTable.JAR__CVE, {'jar_id': jar_id, 'cve_id': cve_id}, {'run_id': run_id})
 
     def associate_sbom_and_artifact(self, run_id: int, jar_id: str, purl: str, has_pom: bool) -> None:
         """
@@ -275,8 +305,9 @@ class GravenDatabase(MySQLDatabase):
         :param purl: purl of the artifact
         :param has_pom: whether or not the artifact contains a pom file
         """
-        self._upsert(JoinTable.SBOM__ARTIFACT, [('jar_id', jar_id), ('purl', purl)],
-                     [('run_id', run_id), ('has_pom', 1 if has_pom else 0)])
+        self._upsert(JoinTable.SBOM__ARTIFACT,
+                     {'jar_id': jar_id, 'purl': purl},
+                     {'run_id': run_id, 'has_pom': 1 if has_pom else 0})
 
     def log_run_start(self, syft_version: str, grype_version: str, grype_db_source: str) -> int:
         """
@@ -287,10 +318,10 @@ class GravenDatabase(MySQLDatabase):
         :param grype_db_source: URL source of grype used
         :return: run id
         """
-        run_id = self._insert(Table.RUN_LOG, [
-            ('syft_version', syft_version),
-            ('grype_version', grype_version),
-            ('grype_db_source', grype_db_source)])
+        run_id = self._insert(Table.RUN_LOG, {
+            'syft_version': syft_version,
+            'grype_version': grype_version,
+            'grype_db_source': grype_db_source})
         return run_id
 
     def log_run_end(self, run_id: int, exit_code: int) -> None:
@@ -300,8 +331,9 @@ class GravenDatabase(MySQLDatabase):
         :param run_id: ID of run to end
         :param exit_code: run exit code
         """
-        self._update(Table.RUN_LOG, [('end', datetime.now(timezone.utc)), ('exit_code', exit_code)],
-                     [('run_id', run_id)])
+        self._update(Table.RUN_LOG,
+                     {'end': datetime.now(timezone.utc), 'exit_code': exit_code},
+                     {'run_id': run_id})
 
     def log_error(self, run_id: int, stage: Stage, error: Exception, jar_id: str = None,
                   details: Dict[Any, Any] = None) -> None:
@@ -314,10 +346,15 @@ class GravenDatabase(MySQLDatabase):
         :param jar_id: Jar ID if available
         :param details: Optional JSON data to include to help debug error
         """
-        inserts = [('timestamp', datetime.now(timezone.utc)), ('run_id', run_id), ('stage', stage.value),
-                   ('error_type', type(error).__name__), ('error_message', str(error))]
+        inserts = {
+            'timestamp': datetime.now(timezone.utc),
+            'run_id': run_id,
+            'stage': stage.value,
+            'error_type': type(error).__name__,
+            'error_message': str(error)
+        }
         if jar_id:
-            inserts.append(('jar_id', jar_id))
+            inserts.update({'jar_id': jar_id})
         if details:
-            inserts.append(('details', json.dumps(details)))
+            inserts.update({'details': json.dumps(details)})
         self._insert(Table.ERROR_LOG, inserts)

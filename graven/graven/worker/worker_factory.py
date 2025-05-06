@@ -197,6 +197,12 @@ class WorkerFactory:
 
 
 def _graceful_start(start_function: Callable, *args: Any) -> None:
+    """
+    Wrapper function for handling errors on exiting
+
+    :param start_function: Start function of the worker
+    :param args: Args for the worker's start function
+    """
     try:
         start_function(*args)
     except Exception as e:
