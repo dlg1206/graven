@@ -72,56 +72,6 @@ class AnalyzerWorker:
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
         logger.info(f"Compressed and saved '{syft_file.file_name}'")
 
-    def _save_dependency_artifacts(self, jar_id: str, syft_file: SyftFile) -> None:
-        """
-        Parse syft SBOM and save direct dependency artifact information
-
-        :param jar_id: Jar ID SBOM belongs to
-        :param syft_file: Syft file metadata with path to sbom file
-        :raises NoArtifactsFoundError: If no artifacts are in the syft SBOM
-        """
-        with open(syft_file.file_path, 'r') as f:
-            syft_data = json.load(f)
-
-        # no additional artifacts
-        if len(syft_data['artifacts']) == 1:
-            logger.debug_msg(f"{syft_file.file_path} does not contain any additional artifacts, skipping. . .")
-            return
-
-        # todo - assume first item is always root
-        artifacts = syft_data['artifacts']
-        # ensure artifacts to process
-        # todo - remove
-        if len(artifacts) == 0:
-            raise NoArtifactsFoundError()
-        root_id = artifacts[0]['id']
-        direct_dependency_ids = {r['parent'] for r in syft_data['artifactRelationships']
-                                 if r['child'] == root_id and r['type'] == "dependency-of"}
-
-        # no direct dependencies
-        if not direct_dependency_ids:
-            logger.debug_msg(f"{syft_file.file_path} does not contain any direct dependencies, skipping. . .")
-            return
-
-        # save any additional artifact information
-        for artifact in artifacts[1:]:
-            # only care about direct deps for now
-            if artifact['id'] not in direct_dependency_ids:
-                continue
-            # ensure artifact is a jar
-            if artifact['type'] != "java-archive":
-                continue
-            purl = artifact['purl']
-            # skip update if seen
-            if self._database.has_seen_purl(purl):
-                logger.debug_msg(f"Seen '{purl}', skipping. . .")
-            else:
-                self._database.upsert_artifact(self._run_id, purl, name=artifact['name'], version=artifact['version'])
-                logger.info(f"Found new artifact: '{purl}'")
-            # save association
-            self._database.associate_sbom_and_artifact(self._run_id, jar_id, purl,
-                                                       'pomProperties' in artifact['metadata'])
-
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
         Parse and save grype results into the database
@@ -171,13 +121,7 @@ class AnalyzerWorker:
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
-                try:
-                    self._save_dependency_artifacts(message.jar_id, message.syft_file)
-                    logger.info(f"Processed '{message.syft_file.file_name}'")
-                except NoArtifactsFoundError as e:
-                    logger.warn(f"No artifacts found for '{message.syft_file.file_name}'", e)
                 message.syft_file.close()
-
             else:
                 logger.debug_msg(f"{message.syft_file.file_path} file is closed, skipping. . .")
             # process grype report
