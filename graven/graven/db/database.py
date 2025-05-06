@@ -1,6 +1,7 @@
 import os
+from datetime import datetime
 from enum import Enum
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Dict
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -21,29 +22,6 @@ class TableEnum(Enum):
     """
     Shared parent table enumb
     """
-
-
-class Table(TableEnum):
-    """
-    Tables that hold data
-    """
-    CVE = "cve"
-    CWE = "cwe"
-    JAR = "jar"
-    SBOM = "sbom"
-    ARTIFACT = "artifact"
-    DOMAIN = "domain"
-    ERROR_LOG = "error_log"
-    RUN_LOG = "run_log"
-
-
-class JoinTable(TableEnum):
-    """
-    Tables that associate data
-    """
-    CVE__CWE = "cve__cwe"
-    JAR__CVE = "jar__cve"
-    SBOM__ARTIFACT = "sbom__artifact"
 
 
 class MySQLDatabase:
@@ -71,7 +49,12 @@ class MySQLDatabase:
             max_overflow=pool_size * MAX_OVERFLOW_RATIO
         )
 
-    def _insert(self, table: TableEnum, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> int | None:
+    #
+    # CRUD methods
+    #
+
+    def _insert(self, table: TableEnum, inserts: Dict[str, str | int | datetime],
+                on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
@@ -80,24 +63,16 @@ class MySQLDatabase:
         :param on_success_msg: Optional debug message to print on success (default: nothing)
         :return: Autoincrement id of inserted row if used, else None
         """
-        # pre-process input
-        # todo - use dicts instead of lists
-        columns, values = zip(*inserts)
-        columns = list(columns)
-        values = list(values)
-
-        # build named parameter dictionary
-        param_names = [f":{col}" for col in columns]
-        param_dict = {col: val for col, val in zip(columns, values)}
         # build sql
+        columns = list(inserts.keys())
         columns_sql = f"({', '.join(columns)})"
-        params_sql = f"({', '.join(param_names)})"
+        params_sql = f"({', '.join([f":{col}" for col in columns])})"
         sql = f"INSERT INTO {table.value} {columns_sql} VALUES {params_sql}"
         # exe sql
         try:
             # begin handles commit and rollback
             with self._engine.begin() as conn:
-                result = conn.execute(text(sql), param_dict)
+                result = conn.execute(text(sql), inserts)
                 # print success message if given one
                 if on_success_msg:
                     logger.debug_msg(on_success_msg)
@@ -113,36 +88,37 @@ class MySQLDatabase:
             return None
 
     def _select(self, table: TableEnum, columns: List[str] = None,
-                where_equals: List[Tuple[str, Any]] = None) \
-            -> List[Tuple[Any]]:
+                where_equals: Dict[str, str | int | datetime] = None, fetch_all: bool = True) -> List[Tuple[Any]]:
         """
         Generic select from the database
 
         :param table: Table to select from
         :param columns: optional column names to insert into (default: *)
         :param where_equals: optional where equals clause (column, value)
+        :param fetch_all: Fetch all rows, fetch one if false. Useful if checking to table contains value (Default: True)
         """
         # build SQL
         columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
         sql = f"SELECT {columns_names} FROM {table.value}"
         # add where clauses if given
         if where_equals:
-            sql += ' WHERE ' + ' AND '.join(
-                [f"{clause[0]} = :{clause[0]}" for clause in where_equals]
-            )
-            params = {clause[0]: clause[1] for clause in where_equals}
-        else:
-            params = {}
-        # execute with where params if present
-        params = {clause[0]: clause[1] for clause in where_equals} if where_equals else {}
+            where_clause = ' AND '.join([f"{clause} = :{clause}" for clause in where_equals.keys()])
+            sql += f" WHERE {where_clause}"
+
         # connect is simple
         with self._engine.connect() as conn:
-            rows = conn.execute(text(sql), params).fetchall()
-        # convert to tuples
-        return [tuple(row) for row in rows]
+            result = conn.execute(text(sql), where_equals if where_equals else {})
+            if fetch_all:
+                rows = result.fetchall()
+            else:
+                rows = result.fetchone()
 
-    def _update(self, table: TableEnum, updates: List[Tuple[str, Any]],
-                where_equals: List[Tuple[str, Any]] = None, on_success: str = None, amend: bool = False) -> bool:
+        # convert to tuples if response, else return nothing
+        return [tuple(row) for row in rows] if rows else []
+
+    def _update(self, table: TableEnum, updates: Dict[str, str | int | datetime],
+                where_equals: Dict[str, str | int | datetime] = None,
+                on_success: str = None, amend: bool = False) -> bool:
         """
         Generic update from the database
 
@@ -155,18 +131,18 @@ class MySQLDatabase:
         """
         # build SQL
         if amend:
-            set_clause = ', '.join(f"{col} = {col} || :set_{col}" for col, _ in updates)
+            set_clause = ', '.join(f"{col} = {col} || :set_{col}" for col in updates.keys())
         else:
-            set_clause = ', '.join(f"{col} = :set_{col}" for col, _ in updates)
+            set_clause = ', '.join(f"{col} = :set_{col}" for col in updates.keys())
 
         sql = f"UPDATE {table.value} SET {set_clause}"
-        params = {f"set_{col}": val for col, val in updates}
+        params = {f"set_{col}": val for col, val in updates.items()}
 
         # add where clauses if given
         if where_equals:
-            where_clause = ' AND '.join(f"{col} = :where_{col}" for col, _ in where_equals)
+            where_clause = ' AND '.join(f"{col} = :where_{col}" for col in where_equals.keys())
             sql += f" WHERE {where_clause}"
-            params.update({f"where_{col}": val for col, val in where_equals})
+            params.update({f"where_{col}": val for col, val in where_equals.items()})
         # execute
         try:
             with self._engine.begin() as conn:
@@ -181,25 +157,26 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return False
 
-    def _upsert(self, table: TableEnum, primary_key: List[Tuple[str, Any]], updates: List[Tuple[str, Any]],
+    def _upsert(self, table: TableEnum, primary_keys: Dict[str, str | int | datetime],
+                updates: Dict[str, str | int | datetime],
                 print_on_success: bool = True) -> None:
         """
         Generic upsert to the database
 
         :param table: Table to select from
-        :param primary_key: Primary key to update (column, value)
+        :param primary_keys: Primary key(s) to update (column, value)
         :param updates: list of updates to the table (column, value)
         :param print_on_success: Print debug message on success (default: True)
         """
         # attempt to update
         msg = None
         if print_on_success:
-            msg = ", ".join([f"{pk[0]} '{pk[1]}'" for pk in primary_key])
-        if not self._update(table, updates,
-                            where_equals=primary_key,
-                            on_success=f"Updated {msg}" if print_on_success else None,
-                            amend=False):
+            msg = ", ".join([f"{k} '{v}'" for k, v in primary_keys.items()])
+        updated = self._update(table, updates,
+                               where_equals=primary_keys,
+                               on_success=f"Updated {msg}" if print_on_success else None,
+                               amend=False)
+        if not updated:
             # if fail, insert
-            updates += primary_key
-            self._insert(table, updates,
-                         on_success_msg=f"Inserted {msg}" if print_on_success else None)
+            updates.update(primary_keys)
+            self._insert(table, updates, on_success_msg=f"Inserted {msg}" if print_on_success else None)
