@@ -1,13 +1,9 @@
 import os
-from contextlib import contextmanager
 from enum import Enum
 from typing import List, Tuple, Any
 
-from dotenv import load_dotenv
-from mysql import connector
-from mysql.connector import pooling, IntegrityError
-from mysql.connector.cursor import MySQLCursor
-from mysql.connector.pooling import PooledMySQLConnection
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from shared.logger import logger
 
@@ -17,7 +13,8 @@ Description: MySQL database interface for handling cve data
 @author Derek Garcia
 """
 
-DEFAULT_POOL_SIZE = 32
+DEFAULT_POOL_SIZE = 10
+MAX_OVERFLOW_RATIO = 2  # default 200% of pool size
 
 
 class TableEnum(Enum):
@@ -57,53 +54,22 @@ class MySQLDatabase:
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
         Create MySQL interface and connection pool to use. Uses environment variables for credentials
+
+        :param pool_size: Size of connection pool to create
         """
-        load_dotenv()
         db_config = {
             "user": os.getenv("MYSQL_USER"),
             "password": os.getenv("MYSQL_PASSWORD"),
             "host": os.getenv("MYSQL_HOST"),
+            "port": int(os.getenv("EXTERNAL_PORT")),
             "database": os.getenv("MYSQL_DATABASE"),
-            "port": int(os.getenv("EXTERNAL_PORT"))
         }
 
-        self._connection_pool = pooling.MySQLConnectionPool(pool_size=pool_size, **db_config)
-
-    @contextmanager
-    def _open_connection(self) -> PooledMySQLConnection:
-        """
-        Open a connection from the pool that will be closed on exit
-
-        :return: Database connection
-        """
-        conn = None
-        try:
-            conn = self._connection_pool.get_connection()
-            yield conn
-        except connector.Error as oe:
-            logger.fatal(oe)
-        finally:
-            if conn:
-                conn.rollback()  # clear any uncommitted transactions
-                conn.close()
-
-    @contextmanager
-    def _get_cursor(self, connection: PooledMySQLConnection) -> MySQLCursor:
-        """
-        Open a cursor that can be closed on exit
-
-        :param connection: Database connection to get the cursor for
-        :return: cursor
-        """
-        cur = None
-        try:
-            cur = connection.cursor()
-            yield cur
-        except connector.Error as oe:
-            logger.fatal(oe)
-        finally:
-            if cur:
-                cur.close()
+        self._engine = create_engine(
+            "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}".format(**db_config),
+            pool_size=pool_size,
+            max_overflow=pool_size * MAX_OVERFLOW_RATIO
+        )
 
     def _insert(self, table: TableEnum, inserts: List[Tuple[str, Any]], on_success_msg: str = None) -> int | None:
         """
@@ -114,32 +80,37 @@ class MySQLDatabase:
         :param on_success_msg: Optional debug message to print on success (default: nothing)
         :return: Autoincrement id of inserted row if used, else None
         """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                columns, values = zip(*[(e[0], e[1]) for e in inserts])  # unpack inserts
-                columns = list(columns)
-                values = list(values)
-                # build SQL
-                columns_names = f"({', '.join(columns)})" if columns else ''  # ( c1, ..., cN )
-                params = f"({', '.join('%s' for _ in values)})"  # ( %s, ..., N )
-                sql = f"INSERT INTO {table.value} {columns_names} VALUES {params};"
-                # execute
-                try:
-                    cur.execute(sql, values)
-                    conn.commit()
-                    # print success message if given one
-                    if on_success_msg:
-                        logger.debug_msg(on_success_msg)
-                except IntegrityError as ie:
-                    # duplicate entry
-                    # logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})") # disabled b/c annoying
-                    pass
-                except connector.Error as oe:
-                    # failed to insert
-                    logger.error_exp(oe)
-                    return None
+        # pre-process input
+        # todo - use dicts instead of lists
+        columns, values = zip(*inserts)
+        columns = list(columns)
+        values = list(values)
+
+        # build named parameter dictionary
+        param_names = [f":{col}" for col in columns]
+        param_dict = {col: val for col, val in zip(columns, values)}
+        # build sql
+        columns_sql = f"({', '.join(columns)})"
+        params_sql = f"({', '.join(param_names)})"
+        sql = f"INSERT INTO {table.value} {columns_sql} VALUES {params_sql}"
+        # exe sql
+        try:
+            # begin handles commit and rollback
+            with self._engine.begin() as conn:
+                result = conn.execute(text(sql), param_dict)
+                # print success message if given one
+                if on_success_msg:
+                    logger.debug_msg(on_success_msg)
                 # return auto incremented id if used
-                return cur.lastrowid
+                return result.lastrowid
+        except IntegrityError as ie:
+            # duplicate entry
+            # logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})") # disabled b/c annoying
+            pass
+        except OperationalError as oe:
+            # failed to insert
+            logger.error_exp(oe)
+            return None
 
     def _select(self, table: TableEnum, columns: List[str] = None,
                 where_equals: List[Tuple[str, Any]] = None) \
@@ -151,19 +122,24 @@ class MySQLDatabase:
         :param columns: optional column names to insert into (default: *)
         :param where_equals: optional where equals clause (column, value)
         """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                # build SQL
-                columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
-                sql = f"SELECT {columns_names} FROM {table.value}"
-                # add where clauses if given
-                if where_equals:
-                    sql += ' WHERE ' + ' AND '.join(
-                        [f"{clause[0]} = %s" for clause in where_equals])  # append all where's
-
-                # execute with where params if present
-                cur.execute(f"{sql};", [] if not where_equals else [clause[1] for clause in where_equals])
-                return cur.fetchall()
+        # build SQL
+        columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
+        sql = f"SELECT {columns_names} FROM {table.value}"
+        # add where clauses if given
+        if where_equals:
+            sql += ' WHERE ' + ' AND '.join(
+                [f"{clause[0]} = :{clause[0]}" for clause in where_equals]
+            )
+            params = {clause[0]: clause[1] for clause in where_equals}
+        else:
+            params = {}
+        # execute with where params if present
+        params = {clause[0]: clause[1] for clause in where_equals} if where_equals else {}
+        # connect is simple
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).fetchall()
+        # convert to tuples
+        return [tuple(row) for row in rows]
 
     def _update(self, table: TableEnum, updates: List[Tuple[str, Any]],
                 where_equals: List[Tuple[str, Any]] = None, on_success: str = None, amend: bool = False) -> bool:
@@ -177,35 +153,33 @@ class MySQLDatabase:
         :param amend: Amend to row instead of replacing (default: False)
         :return: True if update, false otherwise
         """
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                # build SQL
-                if amend:
-                    set_clause = ', '.join(f"{col} = {col} || (%s)" for col, _ in updates)
-                else:
-                    set_clause = ', '.join(f"{col} = (%s)" for col, _ in updates)
+        # build SQL
+        if amend:
+            set_clause = ', '.join(f"{col} = {col} || :set_{col}" for col, _ in updates)
+        else:
+            set_clause = ', '.join(f"{col} = :set_{col}" for col, _ in updates)
 
-                values = [u[1] for u in updates]
-                sql = f"UPDATE {table.value} SET {set_clause}"
+        sql = f"UPDATE {table.value} SET {set_clause}"
+        params = {f"set_{col}": val for col, val in updates}
 
-                # add where clauses if given
-                if where_equals:
-                    sql += ' WHERE ' + ' AND '.join(
-                        [f"{clause[0]} = %s" for clause in where_equals])  # append all where's
-                    [values.append(clause[1]) for clause in where_equals]
-                # execute
-                try:
-                    # execute with where params if present
-                    cur.execute(f"{sql};", values)
-                    conn.commit()
-                except connector.Error as oe:
-                    # failed to update
-                    logger.error_exp(oe)
-                    return False
+        # add where clauses if given
+        if where_equals:
+            where_clause = ' AND '.join(f"{col} = :where_{col}" for col, _ in where_equals)
+            sql += f" WHERE {where_clause}"
+            params.update({f"where_{col}": val for col, val in where_equals})
+        # execute
+        try:
+            with self._engine.begin() as conn:
+                # execute with where params if present
+                result = conn.execute(text(sql), params)
                 # print success message if given one
-                if cur.rowcount > 0 and on_success:
+                if result.rowcount > 0 and on_success:
                     logger.debug_msg(on_success)
-                return cur.rowcount > 0  # rows changed
+                return result.rowcount > 0  # rows changed
+        except OperationalError as oe:
+            # failed to update
+            logger.error_exp(oe)
+            return False
 
     def _upsert(self, table: TableEnum, primary_key: List[Tuple[str, Any]], updates: List[Tuple[str, Any]],
                 print_on_success: bool = True) -> None:

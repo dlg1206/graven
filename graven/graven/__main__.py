@@ -1,6 +1,8 @@
 import csv
 from argparse import ArgumentParser, Namespace
 
+from dotenv import load_dotenv
+
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
 from shared.logger import Level, logger
@@ -184,4 +186,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    load_dotenv()
     main()

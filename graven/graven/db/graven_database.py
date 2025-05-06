@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Dict, Any
 
 from mysql.connector import ProgrammingError, DatabaseError
+from sqlalchemy import text
 
 from db.database import MySQLDatabase, Table, JoinTable
 from qmodel.message import Message
@@ -101,16 +102,19 @@ class GravenDatabase(MySQLDatabase):
 
     def get_message_for_update(self) -> Message | None:
         # todo - option to get completed or failed jars
-        with self._open_connection() as conn:
-            with self._get_cursor(conn) as cur:
-                cur.execute("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED;")
-                result = cur.fetchone()
-                # return none if no jobs
-                if not result:
-                    return None
-                # else mark in progress
-                cur.execute("UPDATE jar SET status = %s WHERE jar_id = %s;", (Stage.TRN_DB_DWN.value, result[1]))
-                conn.commit()
+        with self._engine.begin() as conn:
+            # get jar to process
+            result = conn.execute(
+                text("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED;")
+            ).fetchone()
+            # return none if no jobs
+            if not result:
+                return None
+            # else mark in progress
+            conn.execute(
+                text("UPDATE jar SET status = :status WHERE jar_id = :jar_id"),
+                {"status": Stage.TRN_DB_DWN.value, "jar_id": result.jar_id}
+            )
         return Message(f"{MAVEN_CENTRAL_ROOT}{result[0]}", result[1])
 
     def get_domain_status(self, domain_url: str) -> CrawlStatus:
