@@ -272,16 +272,17 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.SBOM, {'jar_id': jar_id}, {'run_id': run_id, 'sbom': sbom_blob})
 
-    def associate_cve_and_cwe(self, cve_id: str, cwe_id: str) -> None:
+    def associate_cve_and_cwe(self, run_id: int, cve_id: str, cwe_id: str) -> None:
         """
         Save a cve and cwe that impacts it
         CVE must exist in db prior, but CWE is updated if dne
 
+        :param run_id: Run id this was done
         :param cve_id: id of cve
         :param cwe_id: id of cwe
         """
         self._insert(Table.CWE, {'cwe_id': cwe_id})
-        self._insert(JoinTable.CVE__CWE, {'cve_id': cve_id, 'cwe_id': cwe_id})
+        self._insert(JoinTable.CVE__CWE, {'run_id': run_id, 'cve_id': cve_id, 'cwe_id': cwe_id})
 
     def associate_jar_and_cve(self, run_id: int, jar_id: str, cve_id: str) -> None:
         """

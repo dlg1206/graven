@@ -187,7 +187,7 @@ class VulnFetcherWorker:
                                                   description=mitre_result.description, source=mitre_result.source)
                         logger.info(f"Added details for '{cwe_id}'")
                     # associate cve to cwe
-                    self._database.associate_cve_and_cwe(cve_id, cwe_id)
+                    self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
 
                 self._cve_queue.task_done()  # mark task as done
             except Empty:
