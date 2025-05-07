@@ -57,7 +57,7 @@ class ScannerWorker:
         """
         # skip if stop order triggered
         if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan of {message.syft_file.file_path}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
             message.close()
             self._scan_queue.task_done()
             return
@@ -65,15 +65,15 @@ class ScannerWorker:
         try:
             message.open_grype_file(work_dir_path)
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                             f"Queuing grype: {message.syft_file.file_path}")
+                             f"Queuing grype | {message.jar_id}")
             return_code = self._grype.scan(message.syft_file.file_path, message.grype_file.file_path)
             # if return code != 1, then cves we not found
+
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                             f"Generated grype report | {message.grype_file.file_name}")
             if not return_code:
-                logger.debug_msg(f"No CVEs found in {message.grype_file.file_path}")
-                message.grype_file.close()
-            else:
-                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                            f"Generated '{message.grype_file.file_name}'")
+                logger.info(f"No CVEs found | {message.jar_id}")
+
             # then pass down pipeline
             self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
             self._analyze_queue.put(message)

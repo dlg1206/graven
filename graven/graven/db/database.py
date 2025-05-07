@@ -159,14 +159,14 @@ class MySQLDatabase:
 
     def _upsert(self, table: TableEnum, primary_keys: Dict[str, str | int | datetime],
                 updates: Dict[str, str | int | datetime],
-                print_on_success: bool = True) -> None:
+                print_on_success: bool = False) -> None:
         """
         Generic upsert to the database
 
         :param table: Table to select from
         :param primary_keys: Primary key(s) to update (column, value)
         :param updates: list of updates to the table (column, value)
-        :param print_on_success: Print debug message on success (default: True)
+        :param print_on_success: Print debug message on success (default: False)
         """
         # attempt to update
         msg = None

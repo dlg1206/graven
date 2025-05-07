@@ -62,7 +62,7 @@ class AnalyzerWorker:
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.info(f"Compressed and saved '{syft_file.file_name}'")
+        logger.debug_msg(f"Compressed and saved '{syft_file.file_name}'")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -105,24 +105,25 @@ class AnalyzerWorker:
         """
         # skip if stop order triggered
         if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis of {message.syft_file.file_path}")
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis of {message.grype_file.file_path}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
             self._analyze_queue.task_done()
             return
         try:
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
+                logger.info(f"Compressed syft SBOM | {message.jar_id}")
                 message.syft_file.close()
             else:
-                logger.debug_msg(f"{message.syft_file.file_path} file is closed, skipping. . .")
+                logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
             # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
                 message.grype_file.close()
-                logger.info(f"Processed '{message.grype_file.file_name}'")
+                logger.info(f"Processed grype scan | {message.jar_id}")
             else:
-                logger.debug_msg(f"{message.grype_file.file_path} file is closed, skipping. . .")
+                logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
             # mark as done
             self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
             logger.info(f"Saved {message.jar_id}")

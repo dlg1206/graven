@@ -10,6 +10,7 @@ import requests
 import yaml
 
 from shared.logger import logger
+from shared.timer import Timer
 
 """
 File: grype.py
@@ -184,13 +185,13 @@ class Grype:
         :raises GrypeScanFailure: If grype fails to scan
         :return: Return code of the operation
         """
-        start_time = time.time()
+        timer = Timer(True)
         result = subprocess.run([self._bin_path, "--by-cve", "-f", "negligible", f"-o json={out_path}", file_path],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         # non-zero, non-one error
         if result.returncode and result.returncode != 1:
             raise GrypeScanFailure(file_path, result.stderr.decode())
-        logger.debug_msg(f"Scanned {file_path} in {time.time() - start_time:.2f}s")
+        logger.debug_msg(f"Scanned in {timer.format_time()}s | {file_path.split(os.sep)[-1]}")
         return result.returncode
 
     def get_version(self) -> str:

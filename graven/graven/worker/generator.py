@@ -58,18 +58,18 @@ class GeneratorWorker:
         """
         # skip if stop order triggered
         if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan of {message.syft_file.file_path}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
             message.close()
             self._generator_queue.task_done()
             return
         try:
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                             f"Queuing syft: {message.jar_file.file_path}")
+                             f"Queuing syft | {message.jar_id}")
             message.open_syft_file(work_dir_path)
             return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             # report error and continue
             if return_code:
-                logger.debug_msg(f"syft scan of {message.syft_file.file_path} had a non-zero exit code: {return_code}")
+                logger.warn(f"syft scan had a non-zero exit code: {return_code} | {message.jar_id}")
                 self._database.log_error(self._run_id, Stage.GENERATOR,
                                          SyftScanFailure(message.syft_file.file_name, return_code),
                                          jar_id=message.jar_id,
@@ -79,8 +79,8 @@ class GeneratorWorker:
             else:
                 # Else pass down pipeline
                 self._sboms_generated += 1
-                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                            f"Generated '{message.syft_file.file_name}'")
+                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                                 f"Generated syft sbom | {message.syft_file.file_name}")
                 self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
                 self._scan_queue.put(message)
 

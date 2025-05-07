@@ -72,7 +72,7 @@ class DownloaderWorker:
             with open(jar_file.file_path, "wb") as file:
                 file.write(response.content)
         logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                         f"Downloaded {jar_url} in {time.time() - start_time:.2f}s")
+                         f"Downloaded in {time.time() - start_time:.2f}s | {jar_url}")
         self._downloaded_jars += 1
 
     def _process_message(self, message: Message, download_dir_path: str) -> None:
@@ -85,7 +85,7 @@ class DownloaderWorker:
         """
         # skip if stop order triggered
         if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping download of {message.jar_url}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
             return
         try:
             # init jar
