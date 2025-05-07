@@ -35,6 +35,7 @@ class WorkerFactory:
         # attempt to log in into the database
         self._database = GravenDatabase()
         self._interrupt_stop_flag = Event()
+        self._io_thread_count = 0  # to be updated as set
 
         # shared crawler objects
         self._crawler_first_hit_flag = Event()
@@ -62,7 +63,7 @@ class WorkerFactory:
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :return: CrawlerWorker
         """
-
+        self._io_thread_count += max_concurrent_requests  # reserve threads
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
                              self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar,
                              max_concurrent_requests)
@@ -143,16 +144,18 @@ class WorkerFactory:
         run_id = self._database.log_run_start(generator.get_syft_version(),
                                               scanner.get_grype_version(),
                                               scanner.get_grype_db_source())
-        # spawn tasks
+
         timer = Timer(True)
-        crawler_exe = ThreadPoolExecutor(max_workers=1)  # todo fixed for now
+        # create threadpools to be sheared by workers
+        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)
+        # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             logger.debug_msg(f"Working Directory: {tmp_dir}")
             with ThreadPoolExecutor(max_workers=6) as executor:
                 futures = [
                     executor.submit(lambda: _graceful_start(analyzer.start, run_id)),
                     executor.submit(
-                        lambda: _graceful_start(crawler.start, run_id, crawler_exe, root_url=seed_urls.pop(0),
+                        lambda: _graceful_start(crawler.start, run_id, io_exe, root_url=seed_urls.pop(0),
                                                 seed_urls=seed_urls)),
                     executor.submit(lambda: _graceful_start(downloader.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),

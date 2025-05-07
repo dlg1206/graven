@@ -3,7 +3,7 @@ import re
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timezone
-from queue import LifoQueue
+from queue import Queue
 from threading import Event
 from typing import Any, Literal
 
@@ -32,7 +32,8 @@ class CrawlerWorker(Worker, ABC):
                  crawler_first_hit_flag: Event | None,
                  crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
-                 update_jar: bool = False, max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
+                 update_jar: bool = False,
+                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
@@ -44,12 +45,11 @@ class CrawlerWorker(Worker, ABC):
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
-        super().__init__(master_terminate_flag, database, consumer_queue=LifoQueue())
+        super().__init__(master_terminate_flag, database, thread_limit=max_concurrent_requests, consumer_queue=Queue())
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
         self._update_domain = update_domain
         self._update_jar = update_jar
-        self._max_concurrent_requests = max_concurrent_requests
         self._urls_seen = 0
         # set at runtime
         self._current_domain = None
@@ -89,31 +89,6 @@ class CrawlerWorker(Worker, ABC):
                 logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                                  f"Found jar url | {download_url}")
 
-    def _download_html(self, url: str) -> str:
-        """
-        Download page and return the html content
-
-        :param url: URL to download
-        :return: HTML content
-        """
-        # prempt details incase of failure
-        details = {
-            'url': url
-        }
-        try:
-            with requests.get(url) as response:
-                response.raise_for_status()
-                return response.text
-        except RequestException as e:
-            # failed to get url
-            logger.error_exp(e)
-            if hasattr(e, 'response'):
-                details['status_code'] = e.response.status_code
-            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
-        except Exception as e:
-            logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
-
     def _process_url(self, url: str) -> None:
         """
         Wrapper task for submitting to thread pool
@@ -123,11 +98,31 @@ class CrawlerWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping crawl of {url}")
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping crawl | {url}")
             self._consumer_queue.task_done()
             return
-        self._parse_html(url, self._download_html(url))
-        self._consumer_queue.task_done()
+
+        # preempt details in case of failure
+        details = {'url': url}
+        try:
+            with requests.get(url) as response:
+                response.raise_for_status()
+                html = response.text
+            # save jar urls and add additional crawl urls
+            self._parse_html(url, html)
+        except RequestException as e:
+            # failed to get url
+            logger.error_exp(e)
+            if hasattr(e, 'response'):
+                details['status_code'] = e.response.status_code
+            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
+        except Exception as e:
+            logger.error_exp(e)
+            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
+        finally:
+            # mark as done and release thread
+            self._release_thread_lock()
+            self._consumer_queue.task_done()
 
     def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
         """
@@ -180,7 +175,9 @@ class CrawlerWorker(Worker, ABC):
             elif crawl_status == CrawlStatus.IN_PROGRESS or (
                     crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
                 logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
+                # mark as none and release
                 self._consumer_queue.task_done()
+                self._release_thread_lock()
                 return None
 
         # else parse url

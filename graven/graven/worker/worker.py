@@ -2,7 +2,7 @@ import concurrent
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, Future
 from queue import Queue, Empty
-from threading import Event
+from threading import Event, Semaphore
 from typing import Any, Literal
 
 from db.graven_database import GravenDatabase
@@ -20,11 +20,14 @@ Description: Generic worker to handle common tasks
 
 QUEUE_POLL_TIMEOUT = 1
 QUEUE_POLL_RETRY_SLEEP = .1
+THREAD_ACQUIRE_TIMEOUT = 30
 
 
 class Worker(ABC):
 
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
+    def __init__(self, master_terminate_flag: Event,
+                 database: GravenDatabase,
+                 thread_limit: int = None,
                  consumer_queue: Queue[Any | None] = None,
                  producer_queue: Queue[Any | None] = None):
         """
@@ -37,9 +40,10 @@ class Worker(ABC):
         """
         self._master_terminate_flag = master_terminate_flag
         self._database = database
-        self._timer = Timer()
+        self._thread_limit_semaphore = Semaphore(thread_limit) if thread_limit else None
         self._consumer_queue = consumer_queue
         self._producer_queue = producer_queue
+        self._timer = Timer()
         # to be added at runtime
         self._run_id = None
         self._thread_pool_executor: ThreadPoolExecutor | None = None
@@ -61,6 +65,25 @@ class Worker(ABC):
         :return: Message from queue
         """
         return self._consumer_queue.get(timeout=QUEUE_POLL_TIMEOUT)
+
+    def _acquire_thread_lock(self) -> bool:
+        """
+        Util method to acquire thread lock if cap is set
+
+        :return: True if acquired lock, false otherwise
+        """
+        # skip acquire if no cap
+        if not self._thread_limit_semaphore:
+            return True
+        # attempt to acquire lock
+        return self._thread_limit_semaphore.acquire(timeout=THREAD_ACQUIRE_TIMEOUT)
+
+    def _release_thread_lock(self) -> None:
+        """
+        Util method to release thread lock if cap is set
+        """
+        if self._thread_limit_semaphore:
+            self._thread_limit_semaphore.release()
 
     def _pre_start(self, **kwargs: Any) -> None:
         """
@@ -92,9 +115,14 @@ class Worker(ABC):
         self._timer.start()
         while not self._master_terminate_flag.is_set():
             try:
+                # limit threads if cap is set
+                if not self._acquire_thread_lock():
+                    logger.warn("Failed to acquire thread lock; retrying. . .")
+                    continue
                 message = self._poll_consumer_queue()
                 # handle poison pill
                 if not message:
+                    self._thread_limit_semaphore.release()
                     # no consumer queue, must exit
                     if not self._consumer_queue:
                         break
