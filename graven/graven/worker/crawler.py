@@ -1,19 +1,20 @@
 import concurrent
-import queue
 import re
-from concurrent.futures import ThreadPoolExecutor
+from abc import ABC
+from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timezone
 from queue import LifoQueue
 from threading import Event
-from typing import List
+from typing import Any, Literal
 
 import requests
 from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
+from qmodel.message import Message
 from shared.logger import logger
-from shared.timer import Timer
 from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
+from worker.worker import Worker
 
 """
 File: crawler.py
@@ -26,17 +27,16 @@ MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 
 
-class CrawlerWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase,
+class CrawlerWorker(Worker, ABC):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
                  crawler_first_hit_flag: Event | None,
                  crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
-                 update_jar: bool = False,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
+                 update_jar: bool = False, max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
-        :param stop_flag: Master event to exit if keyboard interrupt
+        :param master_terminate_flag:: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
         :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
@@ -44,19 +44,16 @@ class CrawlerWorker:
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
-        self._stop_flag = stop_flag
-        self._database = database
-        self._update_domain = update_domain
-        self._update_jar = update_jar
-        self._crawl_queue = LifoQueue()
+        super().__init__(master_terminate_flag, database, consumer_queue=LifoQueue())
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
+        self._update_domain = update_domain
+        self._update_jar = update_jar
         self._max_concurrent_requests = max_concurrent_requests
-        self._timer = Timer()
         self._urls_seen = 0
-
-        self._run_id = None
+        # set at runtime
         self._current_domain = None
+        self._seed_urls = None
 
     def _parse_html(self, url: str, html: str) -> None:
         """
@@ -71,7 +68,7 @@ class CrawlerWorker:
             # new crawl url
             if match.group(1):
                 crawl_url = f"{url}{match.group(1)}"
-                self._crawl_queue.put(crawl_url)
+                self._consumer_queue.put(crawl_url)
                 logger.debug_msg(f"Found crawl url | {crawl_url}")
                 continue
             # new download url
@@ -89,7 +86,7 @@ class CrawlerWorker:
                 # set if first hit
                 if self._crawler_first_hit_flag and not self._crawler_first_hit_flag.is_set():
                     self._crawler_first_hit_flag.set()
-                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
+                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                                  f"Found jar url | {download_url}")
 
     def _download_html(self, url: str) -> str:
@@ -125,77 +122,93 @@ class CrawlerWorker:
         :param url: URL to process
         """
         # skip if stop order triggered
-        if self._stop_flag.is_set():
+        if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping crawl of {url}")
-            self._crawl_queue.task_done()
+            self._consumer_queue.task_done()
             return
         self._parse_html(url, self._download_html(url))
-        self._crawl_queue.task_done()
+        self._consumer_queue.task_done()
 
-    def _crawl(self, seed_urls: List[str] = None) -> None:
+    def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
         """
-       Continuously download and parse urls until the crawl urls is empty and retries exceeded
+        Handle empty queue to determine when to exit
 
-       :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
-       """
-        tasks = []
-        with ThreadPoolExecutor(max_workers=self._max_concurrent_requests) as exe:
-            # crawl until no urls left
-            while not self._stop_flag.is_set():
-                # logger.info(self._stop_flag.is_set())
-                try:
-                    url = self._crawl_queue.get_nowait()
-                    if url == self._current_domain:
-                        crawl_status = self._database.get_domain_status(url)
-                        # if the crawl has not started, start it
-                        if crawl_status == crawl_status.NOT_STARTED:
-                            self._database.start_domain(url, datetime.now(timezone.utc))
-                            logger.debug_msg(f"Start crawler domain '{self._current_domain}'")
-                        # skip if already in progress or if complete and not updating
-                        elif crawl_status == CrawlStatus.IN_PROGRESS or (
-                                crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
-                            logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
-                            self._crawl_queue.task_done()
-                            continue
+        :return: continue or break
+        """
+        # wait for task to finish to be absolutely sure no urls left
+        logger.warn(f"Queue is empty, ensuring tasks are done. . .")
+        concurrent.futures.wait(self._tasks)
+        # if there were urls left, retry
+        if not self._consumer_queue.empty():
+            logger.info(f"Found new urls to crawl, restarting")
+            return 'continue'
 
-                    # else parse url
-                    tasks.append(exe.submit(self._process_url, url))
-                except queue.Empty:
-                    # wait for task to finish to be absolutely sure no urls left
-                    logger.warn(f"Queue is empty, ensuring tasks are done. . .")
-                    concurrent.futures.wait(tasks)
-                    # if there were urls left, retry
-                    if not self._crawl_queue.empty():
-                        logger.info(f"Found new urls to crawl, restarting")
-                        continue
+        # mark as complete if was progress and this run that started it
+        if self._database.get_domain_status(self._current_domain) == CrawlStatus.IN_PROGRESS:
+            self._database.complete_domain(self._run_id, self._current_domain, datetime.now(timezone.utc))
 
-                    # mark as complete if was progress and this run that started it
-                    if self._database.get_domain_status(self._current_domain) == CrawlStatus.IN_PROGRESS:
-                        self._database.complete_domain(self._run_id, self._current_domain, datetime.now(timezone.utc))
+        # restart with seed url if any left
+        if self._seed_urls:
+            new_root = self._seed_urls.pop(0)
+            new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
+            logger.info(f"Crawler exhausted '{self._current_domain}'. Restarting with '{new_root}'")
+            self._current_domain = new_root
+            # init if updating or dne
+            if self._update_domain or self._database.get_domain_status(
+                    self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
+                self._database.init_domain(self._run_id, self._current_domain)
+                logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
+            self._consumer_queue.put(self._current_domain)
+            return 'continue'
+        # else exit
+        return 'break'
 
-                    # restart with seed url if any left
-                    if seed_urls:
-                        new_root = seed_urls.pop(0)
-                        new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
-                        logger.info(f"Crawler exhausted '{self._current_domain}'. Restarting with '{new_root}'")
-                        self._current_domain = new_root
-                        # init if updating or dne
-                        if self._update_domain or self._database.get_domain_status(
-                                self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
-                            self._database.init_domain(self._run_id, self._current_domain)
-                            logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
-                        self._crawl_queue.put(self._current_domain)
-                        continue
-                    # else exit
-                    break
+    def _handle_message(self, message: Message | str) -> Future | None:
+        """
+        Handle a message from the queue and return the future submitted to the executor
 
-        # log exit type
-        if self._stop_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
-            concurrent.futures.wait(tasks, timeout=0)  # fail fast
-        else:
-            logger.warn(f"Exhausted search space, waiting for remaining tasks to finish. . .")
-            concurrent.futures.wait(tasks)
+        :param message: The message to handle
+        """
+        url = message
+        if url == self._current_domain:
+            crawl_status = self._database.get_domain_status(url)
+            # if the crawl has not started, start it
+            if crawl_status == crawl_status.NOT_STARTED:
+                self._database.start_domain(url, datetime.now(timezone.utc))
+                logger.debug_msg(f"Start crawler domain '{self._current_domain}'")
+            # skip if already in progress or if complete and not updating
+            elif crawl_status == CrawlStatus.IN_PROGRESS or (
+                    crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
+                logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
+                self._consumer_queue.task_done()
+                return None
+
+        # else parse url
+        return self._thread_pool_executor.submit(self._process_url, url)
+
+    def _pre_start(self, **kwargs: Any) -> None:
+        """
+        Set root url and seed urls
+
+        :param root_url: Root url to start the crawler at
+        :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
+        """
+        # init urls
+        root_url = kwargs['root_url']
+        self._current_domain = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
+        self._seed_urls = kwargs.get('seed_urls', [])
+        # seed queue
+        self._consumer_queue.put(self._current_domain)
+        # init if updating or dne
+        if self._update_domain or self._database.get_domain_status(self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
+            self._database.init_domain(self._run_id, self._current_domain)
+            logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
+        logger.info(f"Starting crawler at '{self._current_domain}'")
+
+    def _post_start(self) -> None:
+        """
+        Ensure flags are set correctly if in use
+        """
         # indicate the crawler is finished
         if self._crawler_done_flag:
             self._crawler_done_flag.set()
@@ -210,29 +223,3 @@ class CrawlerWorker:
         logger.info(f"Crawler completed in {self._timer.format_time()}")
         logger.info(
             f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
-
-    def start(self, run_id: int, root_url: str, seed_urls: List[str] = None) -> None:
-        """
-        Spawn and start the crawler worker thread
-
-        :param run_id: ID of run
-        :param root_url: Root url to start the crawler at
-        :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
-        """
-        self._run_id = run_id
-        # init crawler
-        logger.info(f"Initializing crawler. . .")
-        self._current_domain = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
-        self._crawl_queue.put(self._current_domain)
-        # init if updating or dne
-        if self._update_domain or self._database.get_domain_status(self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
-            self._database.init_domain(self._run_id, self._current_domain)
-            logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
-        logger.info(f"Starting crawler at '{self._current_domain}'")
-        self._timer.start()
-        # crawl
-        self._crawl(seed_urls)
-        # done
-        self._crawler_first_hit_flag.set()
-        self._timer.stop()
-        self.print_statistics_message()

@@ -144,14 +144,16 @@ class WorkerFactory:
                                               scanner.get_grype_version(),
                                               scanner.get_grype_db_source())
         # spawn tasks
-        timer = Timer()
-        timer.start()
+        timer = Timer(True)
+        crawler_exe = ThreadPoolExecutor(max_workers=1)  # todo fixed for now
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             logger.debug_msg(f"Working Directory: {tmp_dir}")
             with ThreadPoolExecutor(max_workers=6) as executor:
                 futures = [
                     executor.submit(lambda: _graceful_start(analyzer.start, run_id)),
-                    executor.submit(lambda: _graceful_start(crawler.start, run_id, seed_urls.pop(0), seed_urls)),
+                    executor.submit(
+                        lambda: _graceful_start(crawler.start, run_id, crawler_exe, root_url=seed_urls.pop(0),
+                                                seed_urls=seed_urls)),
                     executor.submit(lambda: _graceful_start(downloader.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),
@@ -196,14 +198,15 @@ class WorkerFactory:
         return exit_code
 
 
-def _graceful_start(start_function: Callable, *args: Any) -> None:
+def _graceful_start(start_function: Callable, *args: Any, **kwargs: Any) -> None:
     """
     Wrapper function for handling errors on exiting
 
     :param start_function: Start function of the worker
     :param args: Args for the worker's start function
+    :param kwargs: Args for the worker's start function
     """
     try:
-        start_function(*args)
+        start_function(*args, **kwargs)
     except Exception as e:
         logger.error_exp(e)

@@ -42,7 +42,7 @@ class Worker(ABC):
         self._producer_queue = producer_queue
         # to be added at runtime
         self._run_id = None
-        self._thread_pool_executor = None
+        self._thread_pool_executor: ThreadPoolExecutor | None = None
         self._tasks = []
 
     def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
@@ -50,6 +50,7 @@ class Worker(ABC):
         Util wrapper for handling an empty consumer queue
 
         Default always continue
+        :return: continue or break
         """
         return 'continue'
 
@@ -136,6 +137,7 @@ class Worker(ABC):
 
         # run any worker-specific post run operations
         self._post_start()
+        self.print_statistics_message()
 
         # cleanup
         self._run_id = None
@@ -145,6 +147,9 @@ class Worker(ABC):
     def _handle_message(self, message: Message | str) -> Future | None:
         """
         Handle a message from the queue and return the future submitted to the executor
+
+        :param message: The message to handle
+        :return: The Future task or None if now task made
         """
         pass
 
