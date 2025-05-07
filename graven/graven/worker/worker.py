@@ -49,6 +49,16 @@ class Worker(ABC):
         self._thread_pool_executor: ThreadPoolExecutor | None = None
         self._tasks = []
 
+    def _poll_consumer_queue(self) -> Message | str | None:
+        """
+        Default poll consumer queue
+
+        :return: Message from queue
+        """
+        if not self._consumer_queue:
+            raise ValueError("Worker has no consumer queue")
+        return self._consumer_queue.get(timeout=QUEUE_POLL_TIMEOUT)
+
     def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
         """
         Util wrapper for handling an empty consumer queue
@@ -58,13 +68,22 @@ class Worker(ABC):
         """
         return 'continue'
 
-    def _poll_consumer_queue(self) -> Message | str:
+    def _handle_none_message(self) -> Literal['continue', 'break']:
         """
-        Default poll consumer queue
+        Util wrapper for handling an none message / poison pill
 
-        :return: Message from queue
+        Default check to make sure only poison pill left
+        :return: continue or break
         """
-        return self._consumer_queue.get(timeout=QUEUE_POLL_TIMEOUT)
+        # no consumer queue, must exit
+        if not self._consumer_queue:
+            return 'break'
+        self._consumer_queue.put(None)
+        # only the poison pill is left
+        if self._consumer_queue.qsize() == 1:
+            return 'break'
+        # other tasks left to process
+        return 'continue'
 
     def _acquire_thread_lock(self) -> bool:
         """
@@ -123,15 +142,10 @@ class Worker(ABC):
                 # handle poison pill
                 if not message:
                     self._thread_limit_semaphore.release()
-                    # no consumer queue, must exit
-                    if not self._consumer_queue:
+                    if self._handle_none_message() == 'break':
                         break
-                    self._consumer_queue.put(None)
-                    # only the poison pill is left
-                    if self._consumer_queue.qsize() == 1:
-                        break
-                    # other tasks left to process
                     continue
+
                 # create task
                 task = self._handle_message(message)
                 if task:

@@ -13,7 +13,6 @@ from requests import RequestException
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
 from qmodel.message import Message
 from shared.logger import logger
-from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 from worker.worker import Worker
 
 """
@@ -26,6 +25,8 @@ Description: Crawl maven central repo for urls
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 
+DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS = 50
+
 
 class CrawlerWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
@@ -33,11 +34,11 @@ class CrawlerWorker(Worker, ABC):
                  crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
                  update_jar: bool = False,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS):
+                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS):
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
-        :param master_terminate_flag:: Master event to exit if keyboard interrupt
+        :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
         :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
         :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
@@ -46,10 +47,13 @@ class CrawlerWorker(Worker, ABC):
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         super().__init__(master_terminate_flag, database, thread_limit=max_concurrent_requests, consumer_queue=Queue())
+        # crawler metadata
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
+        # config
         self._update_domain = update_domain
         self._update_jar = update_jar
+        # stats
         self._urls_seen = 0
         # set at runtime
         self._current_domain = None
@@ -110,14 +114,11 @@ class CrawlerWorker(Worker, ABC):
                 html = response.text
             # save jar urls and add additional crawl urls
             self._parse_html(url, html)
-        except RequestException as e:
+        except (RequestException, Exception) as e:
             # failed to get url
             logger.error_exp(e)
             if hasattr(e, 'response'):
                 details['status_code'] = e.response.status_code
-            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
-        except Exception as e:
-            logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
         finally:
             # mark as done and release thread

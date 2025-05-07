@@ -6,16 +6,16 @@ from dotenv import load_dotenv
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
 from shared.logger import Level, logger
-from shared.utils import DEFAULT_MAX_CONCURRENT_REQUESTS
 from worker.analzyer import DEFAULT_MAX_ANALYZER_THREADS
-from worker.downloader import DEFAULT_MAX_JAR_LIMIT
+from worker.crawler import DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS
+from worker.downloader import DEFAULT_MAX_JAR_LIMIT, DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS
 from worker.generator import DEFAULT_MAX_GENERATOR_THREADS
 from worker.scanner import DEFAULT_MAX_SCANNER_THREADS
 from worker.worker_factory import WorkerFactory
 
 """
 File: __main__.py
-Description: Main entrypoint for crawling operations
+Description: Main entrypoint for graven operations
 
 @author Derek Garcia
 """
@@ -89,8 +89,9 @@ def _create_parser() -> ArgumentParser:
     crawler_group.add_argument("--max-concurrent-crawl-requests",
                                metavar="<number of requests>",
                                type=int,
-                               help=f"Max number of requests crawler can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
-                               default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+                               help=f"Max number of requests crawler can make at once "
+                                    f"(Default: {DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS})",
+                               default=DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS)
 
     crawler_group.add_argument("--update-domain",
                                action="store_true",
@@ -113,8 +114,9 @@ def _create_parser() -> ArgumentParser:
     downloader_group.add_argument("--max-concurrent-download-requests",
                                   metavar="<number of requests>",
                                   type=int,
-                                  help=f"Max number of downloads downloader can make at once (Default: {DEFAULT_MAX_CONCURRENT_REQUESTS})",
-                                  default=DEFAULT_MAX_CONCURRENT_REQUESTS)
+                                  help=f"Max number of downloads downloader can make at once "
+                                       f"(Default: {DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS})",
+                                  default=DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS)
 
     downloader_group.add_argument("--download-limit",
                                   metavar="<number of jars>",

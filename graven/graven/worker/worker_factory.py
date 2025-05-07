@@ -76,6 +76,7 @@ class WorkerFactory:
         :param download_limit: Max number of jars to be downloaded at one time
         :return: DownloaderWorker
         """
+        self._io_thread_count += max_concurrent_requests
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
                                 self._crawler_first_hit_flag, self._crawler_done_flag, max_concurrent_requests,
                                 download_limit)
@@ -147,7 +148,7 @@ class WorkerFactory:
 
         timer = Timer(True)
         # create threadpools to be sheared by workers
-        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)
+        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)  # todo - limit for maven requests
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             logger.debug_msg(f"Working Directory: {tmp_dir}")
@@ -157,7 +158,7 @@ class WorkerFactory:
                     executor.submit(
                         lambda: _graceful_start(crawler.start, run_id, io_exe, root_url=seed_urls.pop(0),
                                                 seed_urls=seed_urls)),
-                    executor.submit(lambda: _graceful_start(downloader.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(downloader.start, run_id, io_exe, root_dir=tmp_dir)),
                     executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(vuln_worker.start, run_id))
