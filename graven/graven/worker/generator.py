@@ -1,4 +1,5 @@
 import os
+import tempfile
 from abc import ABC
 from concurrent.futures import Future
 from queue import Queue
@@ -49,7 +50,6 @@ class GeneratorWorker(Worker, ABC):
         self._sboms_generated = 0
         # set at runtime
         self._run_id = None
-        self._work_dir = None
         self._work_dir_path = None
 
     def _generate_sbom(self, message: Message) -> None:
@@ -128,14 +128,13 @@ class GeneratorWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir = TemporaryDirectory(prefix='syft_', dir=kwargs['root_dir'])
-        self._work_dir_path = self._work_dir.name
+        self._work_dir_path = tempfile.mkdtemp(prefix='syft_', dir=kwargs['root_dir'])
 
     def print_statistics_message(self) -> None:
         """
         Prints statistics about the generator
         """
-        logger.info(f"Generator completed in {self._timer.format_time()}")
+        logger.info(f"Generator completed in {self._timer.format_time()}s")
         logger.info(
             f"Generator has generated {self._sboms_generated} SBOMs ({self._timer.get_count_per_second(self._sboms_generated):.01f} jars / s)")
 

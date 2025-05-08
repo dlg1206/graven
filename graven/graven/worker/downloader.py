@@ -1,3 +1,4 @@
+import tempfile
 import time
 from abc import ABC
 from concurrent.futures import Future
@@ -58,7 +59,6 @@ class DownloaderWorker(Worker, ABC):
         self._downloaded_jars = 0
         # set at runtime
         self._run_id = None
-        self._work_dir = None
         self._work_dir_path = None
 
     def _download_jar(self, message: Message) -> None:
@@ -140,8 +140,7 @@ class DownloaderWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir = TemporaryDirectory(prefix='jar_', dir=kwargs['root_dir'])
-        self._work_dir_path = self._work_dir.name
+        self._work_dir_path = tempfile.mkdtemp(prefix='jar_', dir=kwargs['root_dir'])
         # if using the crawler, wait until find a hit
         # todo - option to skip wait
         if self._crawler_first_hit_flag:
