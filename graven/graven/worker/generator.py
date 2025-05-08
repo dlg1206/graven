@@ -40,7 +40,7 @@ class GeneratorWorker(Worker, ABC):
         :param scan_queue: Queue of SBOM to scan with grype
         :param max_threads: Max number of concurrent requests allowed to be made at once
         """
-        super().__init__(master_terminate_flag, database,
+        super().__init__(master_terminate_flag, database, "generator",
                          thread_limit=max_threads,
                          consumer_queue=generator_queue,
                          producer_queue=scan_queue)

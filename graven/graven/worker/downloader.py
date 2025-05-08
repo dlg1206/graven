@@ -47,7 +47,7 @@ class DownloaderWorker(Worker, ABC):
         :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param download_limit: Max number of jars to be downloaded at one time (Default: 100)
         """
-        super().__init__(master_terminate_flag, database,
+        super().__init__(master_terminate_flag, database, "downloader",
                          thread_limit=max_concurrent_requests,
                          producer_queue=generator_queue)
         # crawler metadata

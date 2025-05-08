@@ -46,7 +46,9 @@ class CrawlerWorker(Worker, ABC):
         :param update_jar: Update a jar if already seen (Default: False)
         :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
-        super().__init__(master_terminate_flag, database, thread_limit=max_concurrent_requests, consumer_queue=Queue())
+        super().__init__(master_terminate_flag, database, "crawler",
+                         thread_limit=max_concurrent_requests,
+                         consumer_queue=Queue())
         # crawler metadata
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag

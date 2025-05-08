@@ -27,6 +27,7 @@ class Worker(ABC):
 
     def __init__(self, master_terminate_flag: Event,
                  database: GravenDatabase,
+                 name: str,
                  thread_limit: int = None,
                  consumer_queue: Queue[Any | None] = None,
                  producer_queue: Queue[Any | None] = None):
@@ -35,11 +36,13 @@ class Worker(ABC):
 
         :param master_terminate_flag: Interrupt flag to signal shutdown
         :param database: Graven Database interface to use
+        :param name: Name of worker
         :param consumer_queue: Optional consumer queue to poll data from
         :param producer_queue: Optional producer queue to submit data to
         """
         self._master_terminate_flag = master_terminate_flag
         self._database = database
+        self._name = name
         self._thread_limit_semaphore = Semaphore(thread_limit) if thread_limit else None
         self._consumer_queue = consumer_queue
         self._producer_queue = producer_queue
@@ -56,7 +59,7 @@ class Worker(ABC):
         :return: Message from queue
         """
         if not self._consumer_queue:
-            raise ValueError("Worker has no consumer queue")
+            raise ValueError(f"'{self._name}' has no consumer queue")
         return self._consumer_queue.get(timeout=QUEUE_POLL_TIMEOUT)
 
     def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
@@ -129,14 +132,14 @@ class Worker(ABC):
         self._run_id = run_id
         self._thread_pool_executor = thread_pool_executor
         self._pre_start(**kwargs)
-        logger.info(f"Starting. . .")
+        logger.info(f"Starting {self._name}. . .")
         # loop until interrupt or complete
         self._timer.start()
         while not self._master_terminate_flag.is_set():
             try:
                 # limit threads if cap is set
                 if not self._acquire_thread_lock():
-                    logger.warn("Failed to acquire thread lock; retrying. . .")
+                    logger.warn(f"{self._name} | Failed to acquire thread lock; retrying. . .")
                     continue
                 message = self._poll_consumer_queue()
                 # handle poison pill
@@ -162,16 +165,16 @@ class Worker(ABC):
                 break
         # stop
         self._timer.stop()
-        logger.info(f"Completed in {self._timer.format_time()}")
+        logger.info(f"{self._name} | Completed in {self._timer.format_time()}")
 
         # log exit type
         if self._master_terminate_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
+            logger.warn(f"{self._name} | Stop order received, exiting. . .")
             concurrent.futures.wait(self._tasks, timeout=0)  # fail fast
         else:
-            logger.warn(f"No more messages to process, waiting for remaining tasks to finish. . .")
+            logger.warn(f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
             concurrent.futures.wait(self._tasks)
-            logger.info(f"All tasks finished, exiting. . .")
+            logger.info(f"{self._name} | All tasks finished, exiting. . .")
 
         # poison queue to signal stop if has producer queue
         if self._producer_queue:
