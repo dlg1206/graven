@@ -36,6 +36,7 @@ class WorkerFactory:
         self._database = GravenDatabase()
         self._interrupt_stop_flag = Event()
         self._io_thread_count = 0  # to be updated as set
+        self._cpu_thread_count = 0
 
         # shared crawler objects
         self._crawler_first_hit_flag = Event()
@@ -94,6 +95,7 @@ class WorkerFactory:
             syft = Syft(syft_path)
         else:
             syft = Syft()
+        self._cpu_thread_count += max_threads
         return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue,
                                max_threads)
 
@@ -149,6 +151,7 @@ class WorkerFactory:
         timer = Timer(True)
         # create threadpools to be sheared by workers
         io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)  # todo - limit for maven requests
+        cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)  # todo - cpu
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             logger.debug_msg(f"Working Directory: {tmp_dir}")
@@ -156,10 +159,11 @@ class WorkerFactory:
                 futures = [
                     executor.submit(lambda: _graceful_start(analyzer.start, run_id)),
                     executor.submit(
-                        lambda: _graceful_start(crawler.start, run_id, io_exe, root_url=seed_urls.pop(0),
+                        lambda: _graceful_start(crawler.start, run_id, io_exe,
+                                                root_url=seed_urls.pop(0),
                                                 seed_urls=seed_urls)),
                     executor.submit(lambda: _graceful_start(downloader.start, run_id, io_exe, root_dir=tmp_dir)),
-                    executor.submit(lambda: _graceful_start(generator.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(generator.start, run_id, cpu_exe, root_dir=tmp_dir)),
                     executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),
                     executor.submit(lambda: _graceful_start(vuln_worker.start, run_id))
                 ]
