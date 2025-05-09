@@ -1,14 +1,16 @@
-import concurrent
-import os
-from concurrent.futures import ThreadPoolExecutor
-from queue import Queue, Empty
+import tempfile
+from abc import ABC
+from concurrent.futures import Future
+from queue import Queue
 from threading import Event
+from typing import Any
 
 from anchore.syft import Syft, SyftScanFailure
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
+from shared.cache_manager import CacheManager, BYTES_PER_MB
 from shared.logger import logger
-from shared.timer import Timer
+from worker.worker import Worker
 
 """
 File: generator.py
@@ -18,150 +20,117 @@ Description: Use syft to generate SBOMs
 @author Derek Garcia
 """
 
-# ScannerWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
+SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sbom
 
 
-class GeneratorWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 syft: Syft,
+class GeneratorWorker(Worker, ABC):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int,
                  generator_queue: Queue[Message | None],
-                 analyze_queue: Queue[Message | None],
-                 max_threads: int = DEFAULT_MAX_GENERATOR_THREADS):
+                 scan_queue: Queue[Message | None]):
         """
         Create a new generator worker that spawns threads to process jars using syft
 
-        :param stop_flag: Master event to exit if keyboard interrupt
+        :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param syft: Syft interface to use for scanning
+        :param cache_size: Size of syft cache to use in bytes
         :param generator_queue: Queue of jar details to generate SBOMs for
-        :param analyze_queue: Queue of SBOM details to analyze
-        :param max_threads: Max number of concurrent requests allowed to be made at once
+        :param scan_queue: Queue of SBOM to scan with grype
         """
-        self._stop_flag = stop_flag
-        self._database = database
+        super().__init__(master_terminate_flag, database, "generator",
+                         consumer_queue=generator_queue,
+                         producer_queue=scan_queue)
+        # config
         self._syft = syft
-        self._generator_queue = generator_queue
-        self._scan_queue = analyze_queue
-        self._max_threads = max_threads
-
-        self._timer = Timer()
+        self._cache_manager = CacheManager(cache_size)
+        # stats
         self._sboms_generated = 0
+        # set at runtime
         self._run_id = None
+        self._work_dir_path = None
 
-    def _process_message(self, message: Message, work_dir_path: str) -> None:
+    def _generate_sbom(self, message: Message) -> None:
         """
         Use syft to scan a jar and generate an SBOM
 
         :param message: Message with jar path and additional details
-        :param work_dir_path: Path to save the generated SBOMs to
         """
+
         # skip if stop order triggered
-        if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan of {message.syft_file.file_path}")
-            message.close()
-            self._generator_queue.task_done()
+        if self._master_terminate_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
+            self._handle_shutdown(message)
             return
+        # else generate sbom
+        self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         try:
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                             f"Queuing syft: {message.jar_file.file_path}")
-            message.open_syft_file(work_dir_path)
-            return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
-            # report error and continue
-            if return_code:
-                logger.debug_msg(f"syft scan of {message.syft_file.file_path} had a non-zero exit code: {return_code}")
-                self._database.log_error(self._run_id, Stage.GENERATOR,
-                                         SyftScanFailure(message.syft_file.file_name, return_code),
-                                         jar_id=message.jar_id,
-                                         details={'return_code': return_code})
-                # If cannot generate SBOM, fail early - don't continue down this path
-                message.syft_file.close()
-            else:
-                # Else pass down pipeline
-                self._sboms_generated += 1
-                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                            f"Generated '{message.syft_file.file_name}'")
-                self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
-                self._scan_queue.put(message)
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                             f"Queuing syft | {message.jar_id}")
+            self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
+            # remove jar since not needed
+            message.jar_file.close()
+            # report success
+            message.syft_file.open()
+            self._sboms_generated += 1
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                             f"Generated syft sbom | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
+            # if syft failed, report but don't skip
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.GENERATOR, e,
                                      jar_id=message.jar_id,
                                      details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
-            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         except Exception as e:
+            message.close()
+            # some unknown error - log and exit early
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id)
-            message.syft_file.close()  # remove sbom if generated
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
+            return
         finally:
-            message.jar_file.close()  # always remove jar
-            self._generator_queue.task_done()
+            # mark as done
+            self._consumer_queue.task_done()
 
-    def _generate(self, work_dir_path: str) -> None:
+        # update pipeline
+        self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
+        self._producer_queue.put(message)
+
+    def _handle_message(self, message: Message | str) -> Future | None:
         """
-        Main generate method. Will continuously spawn threads to scan jars until the generate queue is empty and
-        retries exceeded
+        Handle a message from the queue and return the future submitted to the executor
 
-        :param work_dir_path: Path to save the generated SBOMs to
+        :param message: The message to handle
+        :return: The Future task or None if now task made
         """
-        tasks = []
-        with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            # block until items to process
-            # first_time_wait_for_tasks("Generator", self._generator_queue, self._downloader_done_flag)
-            # todo - waiting logic
-            self._timer.start()
-            while not self._stop_flag.is_set():
-                try:
-                    message = self._generator_queue.get_nowait()
+        # init file
+        message.init_syft_file(self._cache_manager, self._work_dir_path)
+        # try to reserve space, requeue if no space
+        if not self._cache_manager.reserve_space(message.syft_file.file_name, SYFT_SPACE_BUFFER):
+            logger.warn("No space left in cache, trying later. . .")
+            message.syft_file.close()
+            self._consumer_queue.put(message)
+            return None
+        # else process
+        return self._thread_pool_executor.submit(self._generate_sbom, message)
 
-                    # break if poison pill - ie no more jobs
-                    if not message:
-                        break
-                    # scan
-                    self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
-                    tasks.append(exe.submit(self._process_message, message, work_dir_path))
-                except Empty:
-                    """
-                    To prevent deadlocks, the forced timeout with throw this error 
-                    for another iteration of the loop to check conditions
-                    """
-                    continue
+    def _pre_start(self, **kwargs: Any) -> None:
+        """
+        Set the working directory to save SBOMs to
 
-        if self._stop_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
-            concurrent.futures.wait(tasks, timeout=0)  # fail fast
-        else:
-            logger.warn(f"No more jars to scan, waiting for scans to finish. . .")
-            concurrent.futures.wait(tasks)
-            logger.info(f"All jars scanned, exiting. . .")
-        self._scan_queue.put(None)  # poison queue to signal stop
+        :param root_dir: Temp root directory working in
+        """
+        self._work_dir_path = tempfile.mkdtemp(prefix='syft_', dir=kwargs['root_dir'])
 
     def print_statistics_message(self) -> None:
         """
         Prints statistics about the generator
         """
-        logger.info(f"Generator completed in {self._timer.format_time()} using {self._max_threads} threads")
+        logger.info(f"Generator completed in {self._timer.format_time()}s")
         logger.info(
-            f"Generator has generated {self._sboms_generated} SBOMs ({self._timer.get_count_per_second(self._sboms_generated):.01f} jars / s)")
-
-    def start(self, run_id: int, work_dir_path: str) -> None:
-        """
-        Spawn and start the generator worker thread
-
-        :param run_id: ID of run
-        :param work_dir_path: Path to save the generated SBOMs to
-        """
-        self._run_id = run_id
-        logger.info(f"Initializing generator . .")
-        # start the analyzer
-        logger.info(f"Starting generator using {self._max_threads} threads")
-        self._generate(work_dir_path)
-        # done
-        self._timer.stop()
-        self.print_statistics_message()
+            f"Generator has generated {self._sboms_generated} SBOMs "
+            f"({self._timer.get_count_per_second(self._sboms_generated):.01f} SBOMs / s)")
 
     def get_syft_version(self) -> str:
         """

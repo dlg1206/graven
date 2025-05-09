@@ -98,20 +98,35 @@ class GravenDatabase(MySQLDatabase):
     def has_seen_cve(self, cve_id: str) -> bool:
         """
         Check if the database has seen these cves before
-
+        todo - check for errors
         :param cve_id: CVE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id}, fetch_all=False)) != 0
+        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id, 'status_code': None}, fetch_all=False)) != 0
 
     def has_seen_cwe(self, cwe_id: str) -> bool:
         """
         Check if the database has seen these cwes before
 
+        todo - check for errors
         :param cwe_id: CWE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id}, fetch_all=False)) != 0
+        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id, 'status_code': None}, fetch_all=False)) != 0
+
+    def get_cve_for_update(self) -> str | None:
+        """
+        Get a CVE to update
+        todo - check for errors
+
+        :return: CVE ID to query, None if none available
+        """
+        row = self._select(Table.CVE, columns=['cve_id'], where_equals={'status_code': None}, fetch_all=False)
+        if not len(row):
+            return None
+        cve_id = row[0][0]
+        self._upsert(Table.CVE, {'cve_id': cve_id}, {'status_code': 2})  # mark as in progress
+        return cve_id
 
     def has_seen_purl(self, purl: str) -> bool:
         """
@@ -121,6 +136,14 @@ class GravenDatabase(MySQLDatabase):
         :return: True if seen, false otherwise
         """
         return len(self._select(Table.ARTIFACT, where_equals={'purl': purl}, fetch_all=False)) != 0
+
+    def shelf_message(self, jar_id: str) -> None:
+        """
+        Deque message for later analysis
+
+        :param jar_id: id of the jar being shelled
+        """
+        self._update(Table.JAR, {'status': None}, where_equals={'jar_id': jar_id})
 
     def get_message_for_update(self) -> Message | None:
         """
@@ -193,7 +216,7 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.DOMAIN, {'url': domain_url, 'run_id': run_id}, {'crawl_end': crawl_end})
 
-    def update_jar_status(self, jar_id: str, status: Stage | FinalStatus) -> None:
+    def update_jar_status(self, jar_id: str, status: Stage | FinalStatus | None) -> None:
         updates = {'status': status.value}
         # add process status if done
         if status == FinalStatus.DONE:
@@ -221,7 +244,7 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.CVE, {'cve_id': cve_id}, {'run_id': run_id, **kwargs})
 
-    def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: str) -> None:
+    def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: Any) -> None:
         """
         Upsert cwe to the database
 

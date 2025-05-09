@@ -1,6 +1,5 @@
-from threading import Semaphore
-
 from qmodel.file import JarFile, GrypeFile, SyftFile
+from shared.cache_manager import CacheManager
 
 """
 File: message.py
@@ -25,33 +24,32 @@ class Message:
         self.syft_file: SyftFile | None = None
         self.grype_file: GrypeFile | None = None
 
-    def open_jar_file(self, work_dir: str, download_limit: Semaphore) -> None:
+    def init_jar_file(self, cache: CacheManager, work_dir: str) -> None:
         """
-        Create a new jar file
+        Init a new jar file
 
-        :param work_dir: Working directory to create file
-        :param download_limit: Download limit of number of jars
-        """
-        if not self.jar_file:
-            self.jar_file = JarFile(work_dir, self._jar_id, download_limit)
-
-    def open_syft_file(self, work_dir: str) -> None:
-        """
-        Create a new syft file
-
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to create file
         """
-        if not self.syft_file:
-            self.syft_file = SyftFile(work_dir, self._jar_id)
+        self.jar_file = JarFile(cache, work_dir, self._jar_id)
 
-    def open_grype_file(self, work_dir: str) -> None:
+    def init_syft_file(self, cache: CacheManager, work_dir: str) -> None:
+        """
+        Init a new syft file
+
+        :param cache: Cache where file is stored
+        :param work_dir: Working directory to create file
+        """
+        self.syft_file = SyftFile(cache, work_dir, self._jar_id)
+
+    def init_grype_file(self, cache: CacheManager, work_dir: str) -> None:
         """
         Create a new grype file
 
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to create file
         """
-        if not self.grype_file:
-            self.grype_file = GrypeFile(work_dir, self._jar_id)
+        self.grype_file = GrypeFile(cache, work_dir, self._jar_id)
 
     def close(self) -> None:
         """

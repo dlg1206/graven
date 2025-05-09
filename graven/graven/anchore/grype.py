@@ -10,6 +10,7 @@ import requests
 import yaml
 
 from shared.logger import logger
+from shared.timer import Timer
 
 """
 File: grype.py
@@ -23,15 +24,17 @@ DB_SOURCE_FILE = "db_source"
 
 
 class GrypeScanFailure(RuntimeError):
-    def __init__(self, file_name: str, stderr: str):
+    def __init__(self, file_name: str, return_code: int, stderr: str = None):
         """
         Create new scan failure
 
         :param file_name: Name of file scanned
         :param stderr: grype stderr output
+        :param stderr: optional grype stderr output
         """
         super().__init__(f"grype scan failed for {file_name}")
         self.file_name = file_name
+        self.return_code = return_code
         self.stderr = stderr
 
 
@@ -184,13 +187,13 @@ class Grype:
         :raises GrypeScanFailure: If grype fails to scan
         :return: Return code of the operation
         """
-        start_time = time.time()
-        result = subprocess.run([self._bin_path, "--by-cve", "-f", "negligible", f"-o json={out_path}", file_path],
+        timer = Timer(True)
+        result = subprocess.run([self._bin_path, "--by-cve", f"-o json={out_path}", file_path],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        # non-zero, non-one error
-        if result.returncode and result.returncode != 1:
-            raise GrypeScanFailure(file_path, result.stderr.decode())
-        logger.debug_msg(f"Scanned {file_path} in {time.time() - start_time:.2f}s")
+        # non-zero error
+        if result.returncode:
+            raise GrypeScanFailure(file_path, result.returncode, result.stderr.decode())
+        logger.debug_msg(f"Scanned in {timer.format_time()}s | {file_path.split(os.sep)[-1]}")
         return result.returncode
 
     def get_version(self) -> str:

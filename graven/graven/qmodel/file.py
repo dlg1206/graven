@@ -1,6 +1,6 @@
 import os
-from threading import Semaphore
 
+from shared.cache_manager import CacheManager
 from shared.logger import logger
 
 """
@@ -13,16 +13,35 @@ Description: Util class to handle removing files from after usage
 
 
 class File:
-    def __init__(self, work_dir: str, file_name: str, file_ext: str) -> None:
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, file_ext: str) -> None:
         """
         Create a new file object
 
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to save the file in
         :param file_name: Name of the file
         :param file_ext: Extension of the file
         """
+        self._cache = cache
         self._file_name = file_name.replace(".jar", file_ext)
         self._file_path = f"{work_dir}{os.sep}{self._file_name}"
+        self._open = False
+
+    def get_file_size(self) -> int:
+        """
+        :return: size of the file in bytes
+        """
+        # ensure file exists
+        if not os.path.exists(self._file_path):
+            return 0
+        # get size
+        return os.path.getsize(self._file_path)
+
+    def open(self) -> None:
+        """
+        Open the file and ensure cache is updated - must be on the system
+        """
+        self._cache.update_space(self._file_name, os.path.getsize(self._file_path))
         self._open = True
 
     def close(self) -> None:
@@ -35,6 +54,7 @@ class File:
         # delete file
         try:
             os.remove(self._file_path)
+            self._cache.free_space(self._file_name)
         except Exception as e:
             logger.error_exp(e)
         self._open = False
@@ -62,42 +82,36 @@ class File:
 
 
 class JarFile(File):
-    def __init__(self, work_dir: str, file_name: str, download_limit: Semaphore):
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
         """
         Create a new jar file object with limit lock
 
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to save the file in
         :param file_name: Name of the file
-        :param download_limit: Semaphore lock to limit downloads
         """
-        super().__init__(work_dir, file_name, ".jar")
-        self._download_limit = download_limit
-
-    def close(self) -> None:
-        """
-        Delete the file and release the lock
-        """
-        super().close()
-        self._download_limit.release()
+        super().__init__(cache, work_dir, file_name, ".jar")
 
 
 class SyftFile(File):
-    def __init__(self, work_dir: str, file_name: str):
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
         """
         Create a new syft file
 
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to save the file in
         :param file_name: Name of the file
         """
-        super().__init__(work_dir, file_name, ".syft")
+        super().__init__(cache, work_dir, file_name, ".syft")
 
 
 class GrypeFile(File):
-    def __init__(self, work_dir: str, file_name: str):
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
         """
         Create a new grype file
 
+        :param cache: Cache where file is stored
         :param work_dir: Working directory to save the file in
         :param file_name: Name of the file
         """
-        super().__init__(work_dir, file_name, ".grype")
+        super().__init__(cache, work_dir, file_name, ".grype")

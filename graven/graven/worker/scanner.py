@@ -1,14 +1,16 @@
-import concurrent
-import os
-from concurrent.futures import ThreadPoolExecutor
-from queue import Queue, Empty
+import tempfile
+from abc import ABC
+from concurrent.futures import Future
+from queue import Queue
 from threading import Event
+from typing import Any
 
 from anchore.grype import GrypeScanFailure, Grype
 from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
+from shared.cache_manager import CacheManager, BYTES_PER_MB
 from shared.logger import logger
-from shared.timer import Timer
+from worker.worker import Worker
 
 """
 File: scanner.py
@@ -17,142 +19,123 @@ Description: Use grype to scan jars to find CVEs
 
 @author Derek Garcia
 """
-# GeneratorWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
+
+GRYPE_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per grype report
 
 
-class ScannerWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase,
-                 grype: Grype,
+class ScannerWorker(Worker, ABC):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype, cache_size: int,
                  scan_queue: Queue[Message | None],
-                 analyzer_queue: Queue[Message | None],
-                 max_threads: int = DEFAULT_MAX_SCANNER_THREADS):
+                 analyzer_queue: Queue[Message | None]):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 
-        :param stop_flag: Master event to exit if keyboard interrupt
+        :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param grype: Grype interface to use for scanning
+        :param cache_size: Size of syft cache to use in bytes
         :param scan_queue: Queue of scan messages to scan
         :param analyzer_queue: Queue of results to eventually write to the database
-        :param max_threads: Max number of grype scans that can be made at once (default: ceil(os.cpu_count() / 3))
         """
-        self._stop_flag = stop_flag
-        self._database = database
+        super().__init__(master_terminate_flag, database, "scanner",
+                         consumer_queue=scan_queue,
+                         producer_queue=analyzer_queue)
+        # config
         self._grype = grype
-        self._scan_queue = scan_queue
-        self._analyze_queue = analyzer_queue
-        self._max_threads = max_threads
-
-        self._timer = Timer()
+        self._cache_manager = CacheManager(cache_size)
+        # stats
         self._sboms_scanned = 0
+        self._jars_scanned = 0
+        # set at runtime
         self._run_id = None
+        self._work_dir_path = None
 
-    def _process_message(self, message: Message, work_dir_path: str) -> None:
+    def _scan_with_grype(self, message: Message) -> None:
         """
         Use grype to scan a sbom
 
         :param message: Message with jar path and additional details
-        :param work_dir_path: Path to save the generated grype reports to
         """
         # skip if stop order triggered
-        if self._stop_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan of {message.syft_file.file_path}")
-            message.close()
-            self._scan_queue.task_done()
+        if self._master_terminate_flag.is_set():
+            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
+            self._handle_shutdown(message)
             return
         # scan
+        self._database.update_jar_status(message.jar_id, Stage.SCANNER)
         try:
-            message.open_grype_file(work_dir_path)
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                             f"Queuing grype: {message.syft_file.file_path}")
-            return_code = self._grype.scan(message.syft_file.file_path, message.grype_file.file_path)
-            # if return code != 1, then cves we not found
-            if not return_code:
-                logger.debug_msg(f"No CVEs found in {message.grype_file.file_path}")
-                message.grype_file.close()
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                             f"Queuing grype | {message.jar_id}")
+            # scan sbom or jar depending on what's available
+            if message.syft_file.is_open:
+                file_path = message.syft_file.file_path
             else:
-                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
-                            f"Generated '{message.grype_file.file_name}'")
-            # then pass down pipeline
+                file_path = message.jar_file.file_path
+
+            self._grype.scan(file_path, message.grype_file.file_path)
+            # report success
+            message.grype_file.open()
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                             f"Generated grype report | {message.grype_file.file_name}")
+
+            # update counts
+            if message.syft_file.is_open:
+                self._sboms_scanned += 1
+            else:
+                self._jars_scanned += 1
+            # update pipeline
             self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
-            self._analyze_queue.put(message)
-            self._sboms_scanned += 1
-        except GrypeScanFailure as e:
-            logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id)
+            self._producer_queue.put(message)
+
+        except (GrypeScanFailure, Exception) as e:
             message.close()
-            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
-        except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id)
-            message.close()
+            details = None
+            if isinstance(e, GrypeScanFailure):
+                details = {'return_code': e.return_code, 'stderr': e.stderr}
+            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id, details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
-            self._scan_queue.task_done()
+            # mark as done
+            self._consumer_queue.task_done()
+            # remove jar since finished
+            message.jar_file.close()
 
-    def _scan(self, work_dir_path: str) -> None:
+    def _handle_message(self, message: Message | str) -> Future | None:
         """
-        Main scan method. Will continuously spawn threads to scan SBOMs until
-        the scan queue is empty and retries exceeded
+        Handle a message from the queue and return the future submitted to the executor
 
-        :param work_dir_path: Path to save the generated grype reports to
+        :param message: The message to handle
+        :return: The Future task or None if now task made
         """
-        tasks = []
-        with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            # first_time_wait_for_tasks("Scanner", self._scan_queue, self._generator_done_flag)  # block until items to process
-            # todo - waiting logic
-            self._timer.start()
-
-            while not self._stop_flag.is_set():
-                try:
-                    message = self._scan_queue.get_nowait()
-                    # break if poison pill - ie no more jobs
-                    if not message:
-                        break
-                    # scan
-                    self._database.update_jar_status(message.jar_id, Stage.SCANNER)
-                    tasks.append(exe.submit(self._process_message, message, work_dir_path))
-                except Empty:
-                    """
-                    To prevent deadlocks, the forced timeout with throw this error 
-                    for another iteration of the loop to check conditions
-                    """
-                    continue
-
-        # log exit type
-        if self._stop_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
-            concurrent.futures.wait(tasks, timeout=0)  # fail fast
-        else:
-            logger.warn(f"No more SBOMs to scan, waiting for scans to finish. . .")
-            concurrent.futures.wait(tasks)
-            logger.info(f"All SBOMs scanned, exiting. . .")
-        self._analyze_queue.put(None)  # poison queue to signal stop
+        # init file
+        message.init_grype_file(self._cache_manager, self._work_dir_path)
+        # try to reserve space, requeue if no space
+        if not self._cache_manager.reserve_space(message.grype_file.file_name, GRYPE_SPACE_BUFFER):
+            logger.warn("No space left in cache, trying later. . .")
+            message.grype_file.close()
+            self._consumer_queue.put(message)
+            return None
+        # else process
+        return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
     def print_statistics_message(self) -> None:
         """
         Prints statistics about the scanner
         """
-        logger.info(f"Scanner completed in {self._timer.format_time()} using {self._max_threads} threads")
+        logger.info(f"Scanner completed in {self._timer.format_time()}")
         logger.info(
-            f"Scanner has scanned {self._sboms_scanned} jars ({self._timer.get_count_per_second(self._sboms_scanned):.01f} jars / s)")
+            f"Scanner has scanned {self._sboms_scanned} SBOMs ({self._timer.get_count_per_second(self._sboms_scanned):.01f} SBOMs / s)")
+        logger.info(
+            f"Scanner has scanned {self._jars_scanned} jars")
 
-    def start(self, run_id: int, work_dir_path: str) -> None:
+    def _pre_start(self, **kwargs: Any) -> None:
         """
-        Spawn and start the scanner worker thread
+        Set the working directory to save grype output to
 
-        :param run_id: ID of run
-        :param work_dir_path: Path to save the grype reports to
+        :param root_dir: Temp root directory working in
         """
-        self._run_id = run_id
-        logger.info(f"Initializing scanner . .")
-        # start the scanner
-        logger.info(f"Starting scanner using {self._max_threads} threads")
-        self._scan(work_dir_path)
-        # done
-        self._timer.stop()
-        self.print_statistics_message()
+        self._work_dir_path = tempfile.mkdtemp(prefix='grype_', dir=kwargs['root_dir'])
 
     def get_grype_version(self) -> str:
         """
