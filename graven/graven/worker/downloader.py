@@ -149,7 +149,7 @@ class DownloaderWorker(Worker, ABC):
         time.sleep(RETRY_SLEEP)
         return 'continue'
 
-    def _poll_consumer_queue(self) -> Message | str | None:
+    def _poll_consumer_queue(self) -> Message | None:
         """
         Get a message from the database
         """

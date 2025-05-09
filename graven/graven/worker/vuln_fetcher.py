@@ -3,9 +3,8 @@ import time
 from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from queue import Queue
 from threading import Event
-from typing import List
+from typing import List, Literal
 
 import requests
 from bs4 import BeautifulSoup
@@ -67,7 +66,7 @@ class CVENotFoundError(IOError):
 
 
 class VulnFetcherWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, cve_queue: Queue[str | None]):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, analyzer_done_flag: Event = None):
         """
         Create a new NVD and Mitre Worker
 
@@ -75,9 +74,10 @@ class VulnFetcherWorker(Worker, ABC):
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
-        :param cve_queue: Queue of cves to process
+        :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
-        super().__init__(master_terminate_flag, database, "vuln_fetcher", consumer_queue=cve_queue)
+        super().__init__(master_terminate_flag, database, "vuln_fetcher")
+        self._analyzer_done_flag = analyzer_done_flag
         # determine sleep if key is available
         self._api_key_available = True if os.getenv('NVD_API_KEY') else False
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
@@ -181,6 +181,24 @@ class VulnFetcherWorker(Worker, ABC):
 
         finally:
             self._consumer_queue.task_done()  # mark task as done
+
+    def _handle_none_message(self) -> Literal['continue', 'break']:
+        """
+        Handle when get none message
+        """
+        # not using the analyzer or are using and done flag is set - means no more cves will be added
+        if not self._analyzer_done_flag or self._analyzer_done_flag.is_set():
+            return 'break'
+        # else using the crawler and more jars will come
+        logger.warn(
+            f"Found no CVEs to download but analyzer is still running, continuing. . .")
+        return 'continue'
+
+    def _poll_consumer_queue(self) -> str | None:
+        """
+        Get a message from the database
+        """
+        return self._database.get_cve_for_update()
 
     def print_statistics_message(self) -> None:
         """

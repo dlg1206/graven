@@ -49,10 +49,8 @@ class WorkerFactory:
         self._scan_queue: Queue[Message | None] = Queue()
 
         # shared analyzer objects
-        self._analyze_queue: Queue[Message | None] = Queue()
-
-        # shared nvd objects
-        self._cve_queue: Queue[str | None] = Queue()
+        self._analyzer_queue: Queue[Message | None] = Queue()
+        self._analyzer_done_flag = Event()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool,
                               update_jar: bool) -> CrawlerWorker:
@@ -112,7 +110,7 @@ class WorkerFactory:
         else:
             grype = Grype(grype_db_source)
         self._cpu_thread_count += max_threads
-        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyze_queue)
+        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyzer_queue)
 
     def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
         """
@@ -121,7 +119,7 @@ class WorkerFactory:
         :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
-        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyze_queue, self._cve_queue)
+        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyzer_queue, self._analyzer_done_flag)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, seed_urls: List[str]) -> int:
@@ -137,8 +135,8 @@ class WorkerFactory:
         :return: Exit code
         """
         logger.info("Launching Graven worker threads...")
-        vuln_worker = VulnFetcherWorker(self._interrupt_stop_flag, self._database,
-                                        self._cve_queue)  # for getting cve details
+        # for getting cve details
+        vuln_worker = VulnFetcherWorker(self._interrupt_stop_flag, self._database, self._analyzer_done_flag)
         exit_code = 0  # assume ok
         run_id = self._database.log_run_start(generator.get_syft_version(),
                                               scanner.get_grype_version(),

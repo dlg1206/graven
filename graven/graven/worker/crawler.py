@@ -11,7 +11,6 @@ import requests
 from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, CrawlStatus
-from qmodel.message import Message
 from shared.logger import logger
 from worker.worker import Worker
 
@@ -157,7 +156,7 @@ class CrawlerWorker(Worker, ABC):
         # else exit
         return 'break'
 
-    def _handle_message(self, message: Message | str) -> Future | None:
+    def _handle_message(self, message: str) -> Future | None:
         """
         Handle a message from the queue and return the future submitted to the executor
 

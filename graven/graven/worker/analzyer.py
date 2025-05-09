@@ -32,19 +32,18 @@ DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 class AnalyzerWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
-                 analyze_queue: Queue[Message | None],
-                 cve_queue: Queue[str | None]):
+                 analyzer_queue: Queue[Message | None],
+                 analyzer_done_flag: Event = None):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
-        :param analyze_queue: Queue of items to save to the database
-        :param cve_queue: Queue of CVEs to search NVD for
+        :param analyzer_queue: Queue of items to save to the database
+        :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
-        super().__init__(master_terminate_flag, database, "analyzer",
-                         consumer_queue=analyze_queue,
-                         producer_queue=cve_queue)
+        super().__init__(master_terminate_flag, database, "analyzer", consumer_queue=analyzer_queue)
+        self._analyzer_done_flag = analyzer_done_flag
         # set at runtime
         self._run_id = None
 
@@ -89,8 +88,6 @@ class AnalyzerWorker(Worker, ABC):
             else:
                 self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
-                # send to nvd api to get details
-                self._producer_queue.put(vid)
 
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
@@ -148,6 +145,13 @@ class AnalyzerWorker(Worker, ABC):
         # process sequentially
         self._analyze_files(message)
         return None
+
+    def _post_start(self) -> None:
+        """
+        Set the done flag if using
+        """
+        if self._analyzer_done_flag:
+            self._analyzer_done_flag.set()
 
     def print_statistics_message(self) -> None:
         """

@@ -98,20 +98,35 @@ class GravenDatabase(MySQLDatabase):
     def has_seen_cve(self, cve_id: str) -> bool:
         """
         Check if the database has seen these cves before
-
+        todo - check for errors
         :param cve_id: CVE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id}, fetch_all=False)) != 0
+        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id, 'status_code': None}, fetch_all=False)) != 0
 
     def has_seen_cwe(self, cwe_id: str) -> bool:
         """
         Check if the database has seen these cwes before
 
+        todo - check for errors
         :param cwe_id: CWE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id}, fetch_all=False)) != 0
+        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id, 'status_code': None}, fetch_all=False)) != 0
+
+    def get_cve_for_update(self) -> str | None:
+        """
+        Get a CVE to update
+        todo - check for errors
+
+        :return: CVE ID to query, None if none available
+        """
+        row = self._select(Table.CVE, columns=['cve_id'], where_equals={'status_code': None}, fetch_all=False)
+        if not len(row):
+            return None
+        cve_id = row[0][0]
+        self._upsert(Table.CVE, {'cve_id': cve_id}, {'status_code': 2})  # mark as in progress
+        return cve_id
 
     def has_seen_purl(self, purl: str) -> bool:
         """

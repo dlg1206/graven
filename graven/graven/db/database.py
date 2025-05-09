@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 from enum import Enum
 from typing import List, Tuple, Any, Dict
 
@@ -155,7 +154,7 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return False
 
-    def _upsert(self, table: TableEnum, primary_keys: Dict[str, Any],  updates: Dict[str, Any],
+    def _upsert(self, table: TableEnum, primary_keys: Dict[str, Any], updates: Dict[str, Any],
                 print_on_success: bool = False) -> None:
         """
         Generic upsert to the database
