@@ -77,9 +77,9 @@ class AnalyzerWorker(Worker, ABC):
         with open(grype_file.file_path, 'r') as f:
             grype_data = json.load(f)
 
-        for hit in grype_data['matches']:
+        for hit in grype_data.get('matches', []):
             vuln = hit['vulnerability']
-            vid = vuln['id']
+            vid = vuln.get('id', '')
             # skip non-cves
             if not vid.startswith('CVE'):
                 logger.debug_msg(f"Skipping non-CVE '{vid}'")

@@ -53,8 +53,7 @@ class MySQLDatabase:
     # CRUD methods
     #
 
-    def _insert(self, table: TableEnum, inserts: Dict[str, str | int | datetime],
-                on_success_msg: str = None) -> int | None:
+    def _insert(self, table: TableEnum, inserts: Dict[str, Any], on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
@@ -87,8 +86,8 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return None
 
-    def _select(self, table: TableEnum, columns: List[str] = None,
-                where_equals: Dict[str, str | int | datetime] = None, fetch_all: bool = True) -> List[Tuple[Any]]:
+    def _select(self, table: TableEnum, columns: List[str] = None, where_equals: Dict[str, Any] = None,
+                fetch_all: bool = True) -> List[Tuple[Any]]:
         """
         Generic select from the database
 
@@ -110,14 +109,13 @@ class MySQLDatabase:
             result = conn.execute(text(sql), where_equals if where_equals else {})
             if fetch_all:
                 rows = result.fetchall()
+                # convert to tuples if response, else return nothing
+                return [tuple(row) for row in rows] if rows else []
             else:
-                rows = result.fetchone()
+                row = result.fetchone()
+                return [row] if row else []  # fetch_one returns tuple, convert to list
 
-        # convert to tuples if response, else return nothing
-        return [tuple(row) for row in rows] if rows else []
-
-    def _update(self, table: TableEnum, updates: Dict[str, str | int | datetime],
-                where_equals: Dict[str, str | int | datetime] = None,
+    def _update(self, table: TableEnum, updates: Dict[str, Any], where_equals: Dict[str, Any] = None,
                 on_success: str = None, amend: bool = False) -> bool:
         """
         Generic update from the database
@@ -157,8 +155,7 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return False
 
-    def _upsert(self, table: TableEnum, primary_keys: Dict[str, str | int | datetime],
-                updates: Dict[str, str | int | datetime],
+    def _upsert(self, table: TableEnum, primary_keys: Dict[str, Any],  updates: Dict[str, Any],
                 print_on_success: bool = False) -> None:
         """
         Generic upsert to the database
