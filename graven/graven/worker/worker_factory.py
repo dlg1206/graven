@@ -73,20 +73,21 @@ class WorkerFactory:
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
                              self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar)
 
-    def create_downloader_worker(self, cache_size: int = None) -> DownloaderWorker:
+    def create_downloader_worker(self, cache_size: int) -> DownloaderWorker:
         """
         Create a new downloader worker
 
-        :param cache_size: Size of jar cache to use
+        :param cache_size: Size of jar cache to use in bytes
         :return: DownloaderWorker
         """
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
                                 self._crawler_first_hit_flag, self._crawler_done_flag, cache_size)
 
-    def create_generator_worker(self, syft_path: str = None) -> GeneratorWorker:
+    def create_generator_worker(self, cache_size: int, syft_path: str = None) -> GeneratorWorker:
         """
         Create a new downloader worker
 
+        :param cache_size: Size of syft cache to use in bytes
         :param syft_path: Path to syft bin (Default: assume on path or in pwd)
         :return: GeneratorWorker
         """
@@ -95,12 +96,15 @@ class WorkerFactory:
             syft = Syft(syft_path)
         else:
             syft = Syft()
-        return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue)
+        return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, cache_size, self._generator_queue,
+                               self._scan_queue)
 
-    def create_scanner_worker(self, grype_path: str = None, grype_db_source: str = None) -> ScannerWorker:
+    def create_scanner_worker(self, cache_size: int, grype_path: str = None,
+                              grype_db_source: str = None) -> ScannerWorker:
         """
         Create a new scanner worker
 
+        :param cache_size: Size of grype cache to use in bytes
         :param grype_path: Path to grype bin (Default: assume on path or in pwd)
         :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
         :return: ScannerWorker
@@ -110,7 +114,8 @@ class WorkerFactory:
             grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
         else:
             grype = Grype(grype_db_source)
-        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyzer_queue)
+        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, cache_size,
+                             self._scan_queue, self._analyzer_queue)
 
     def create_analyzer_worker(self) -> AnalyzerWorker:
         """

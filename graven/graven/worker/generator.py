@@ -24,7 +24,7 @@ SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sb
 
 
 class GeneratorWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft,
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int,
                  generator_queue: Queue[Message | None],
                  scan_queue: Queue[Message | None]):
         """
@@ -33,6 +33,7 @@ class GeneratorWorker(Worker, ABC):
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param syft: Syft interface to use for scanning
+        :param cache_size: Size of syft cache to use in bytes
         :param generator_queue: Queue of jar details to generate SBOMs for
         :param scan_queue: Queue of SBOM to scan with grype
         """
@@ -41,7 +42,7 @@ class GeneratorWorker(Worker, ABC):
                          producer_queue=scan_queue)
         # config
         self._syft = syft
-        self._cache_manager = CacheManager()
+        self._cache_manager = CacheManager(cache_size)
         # stats
         self._sboms_generated = 0
         # set at runtime

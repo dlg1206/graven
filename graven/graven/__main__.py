@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
-from shared.cache_manager import bytes_to_mb, DEFAULT_MAX_CAPACITY
+from shared.cache_manager import bytes_to_mb, DEFAULT_MAX_CAPACITY, mb_to_bytes
 from shared.logger import Level, logger
 from worker.worker_factory import WorkerFactory, DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS, DEFAULT_MAX_CPU_THREADS
 
@@ -35,11 +35,16 @@ def _execute(args: Namespace) -> None:
         seed_urls = [args.root_url]
 
     # make workers
-    crawler = worker_factory.create_crawler_worker(args.update or args.update_domain,
-                                                   args.update or args.update_jar)
-    downloader = worker_factory.create_downloader_worker(args.download_cache_size)
-    generator = worker_factory.create_generator_worker(args.syft_path)
-    scanner = worker_factory.create_scanner_worker(args.grype_path, args.grype_db_source)
+    crawler = worker_factory.create_crawler_worker(args.update or args.update_domain, args.update or args.update_jar)
+    # downloader
+    download_cache = mb_to_bytes(args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
+    downloader = worker_factory.create_downloader_worker(download_cache)
+    # generator
+    syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
+    generator = worker_factory.create_generator_worker(syft_cache, args.syft_path)
+    # scanner
+    grype_cache = mb_to_bytes(args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
+    scanner = worker_factory.create_scanner_worker(grype_cache, args.grype_path, args.grype_db_source)
     analyzer = worker_factory.create_analyzer_worker()
 
     # start job
@@ -84,27 +89,23 @@ def _create_parser() -> ArgumentParser:
     crawler_group.add_argument("--update-domain",
                                action="store_true",
                                help="Update domains that have already been crawled. "
-                                    "Useful for ensuring no jars were missed in a domain"
-                               )
+                                    "Useful for ensuring no jars were missed in a domain")
 
     crawler_group.add_argument("--update-jar",
                                action="store_true",
-                               help="Update jars that have already been crawled"
-                               )
+                               help="Update jars that have already been crawled")
 
     crawler_group.add_argument("-u", "--update",
                                action="store_true",
                                help="Update domains AND jars that have already been crawled. "
-                                    "Supersedes --update-* flags"
-                               )
+                                    "Supersedes --update-* flags")
 
     downloader_group = parser.add_argument_group("Downloader Options")
     downloader_group.add_argument("--download-cache-size",
                                   metavar="<cache size in MB>",
-                                  type=int,
+                                  type=float,
                                   help=f"Limit of the number of jars to be saved at one time. "
-                                       f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)",
-                                  default=DEFAULT_MAX_CAPACITY)
+                                       f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
     generator_group = parser.add_argument_group("Generator Options")
     generator_group.add_argument("--syft-path",
@@ -112,6 +113,11 @@ def _create_parser() -> ArgumentParser:
                                  type=str,
                                  help=f"Path to syft binary to use. By default, assumes syft is already on the PATH",
                                  default=SYFT_BIN)
+    generator_group.add_argument("--syft-cache-size",
+                                 metavar="<cache size in MB>",
+                                 type=float,
+                                 help=f"Limit of the number of grype files to be saved at one time. "
+                                      f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
     scanner_group = parser.add_argument_group("Scanner Options")
     scanner_group.add_argument("--grype-path",
@@ -124,6 +130,12 @@ def _create_parser() -> ArgumentParser:
                                metavar="<url of grype database to use>",
                                type=str,
                                help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
+
+    scanner_group.add_argument("--grype-cache-size",
+                               metavar="<cache size in MB>",
+                               type=float,
+                               help=f"Limit of the number of grype files to be saved at one time. "
+                                    f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
     misc_group = parser.add_argument_group("Miscellaneous Options")
     misc_group.add_argument("--max-concurrent-maven-requests",

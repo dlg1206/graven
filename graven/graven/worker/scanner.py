@@ -24,7 +24,7 @@ GRYPE_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per g
 
 
 class ScannerWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype,
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype, cache_size: int,
                  scan_queue: Queue[Message | None],
                  analyzer_queue: Queue[Message | None]):
         """
@@ -33,6 +33,7 @@ class ScannerWorker(Worker, ABC):
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to save grype results and store any error messages in
         :param grype: Grype interface to use for scanning
+        :param cache_size: Size of syft cache to use in bytes
         :param scan_queue: Queue of scan messages to scan
         :param analyzer_queue: Queue of results to eventually write to the database
         """
@@ -41,7 +42,7 @@ class ScannerWorker(Worker, ABC):
                          producer_queue=analyzer_queue)
         # config
         self._grype = grype
-        self._cache_manager = CacheManager()
+        self._cache_manager = CacheManager(cache_size)
         # stats
         self._sboms_scanned = 0
         self._jars_scanned = 0
