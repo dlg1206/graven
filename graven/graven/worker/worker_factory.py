@@ -121,8 +121,7 @@ class WorkerFactory:
         :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
-        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyze_queue, self._cve_queue,
-                              max_threads)
+        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyze_queue, self._cve_queue)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, seed_urls: List[str]) -> int:

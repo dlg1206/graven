@@ -100,12 +100,12 @@ class Worker(ABC):
         """
         pass
 
-    def start(self, run_id: int, thread_pool_executor: ThreadPoolExecutor, **kwargs: Any) -> None:
+    def start(self, run_id: int, thread_pool_executor: ThreadPoolExecutor = None, **kwargs: Any) -> None:
         """
         Main run function that starts the worker
 
         :param run_id: Run ID that this run belongs to
-        :param thread_pool_executor: Executor to submit jobs to
+        :param thread_pool_executor: Optional executor to submit jobs to
         :param kwargs: Any runtime needed arguments for the worker
         """
         self._run_id = run_id

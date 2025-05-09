@@ -1,10 +1,11 @@
-import concurrent
+import json
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from abc import ABC
+from concurrent.futures import Future
+from datetime import datetime, timezone
 from math import floor
-from queue import Queue, Empty
+from queue import Queue
 from threading import Event
 
 import zstandard as zstd
@@ -13,6 +14,8 @@ from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.file import GrypeFile, SyftFile
 from qmodel.message import Message
 from shared.logger import logger
+from shared.timer import Timer
+from worker.worker import Worker
 
 """
 File: analyzer.py
@@ -28,25 +31,22 @@ WRITE_TIMEOUT = 1
 DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
-class AnalyzerWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase,
+class AnalyzerWorker(Worker, ABC):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
                  analyze_queue: Queue[Message | None],
-                 cve_queue: Queue[str | None],
-                 max_threads: int = DEFAULT_MAX_ANALYZER_THREADS):
+                 cve_queue: Queue[str | None]):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
-        :param stop_flag: Master event to exit if keyboard interrupt
+        :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param analyze_queue: Queue of items to save to the database
-        :param max_threads: Max number of messages that can be processed at once (default: floor(os.cpu_count() / 3))
+        :param cve_queue: Queue of CVEs to search NVD for
         """
-        self._stop_flag = stop_flag
-        self._database = database
-        self._analyze_queue = analyze_queue
-        self._cve_queue = cve_queue
-        self._max_threads = max_threads
-
+        super().__init__(master_terminate_flag, database, "analyzer",
+                         consumer_queue=analyze_queue,
+                         producer_queue=cve_queue)
+        # set at runtime
         self._run_id = None
 
     def _compress_and_save_sbom(self, jar_id: str, syft_file: SyftFile) -> None:
@@ -56,13 +56,14 @@ class AnalyzerWorker:
         :param jar_id: Jar ID SBOM belongs to
         :param syft_file: Syft file metadata with path to sbom file
         """
+        timer = Timer(True)
         # create a new compressor each time, sharing leads to buffer overflow
         cctx = zstd.ZstdCompressor()
         with open(syft_file.file_path, 'rb') as f:
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.debug_msg(f"Compressed and saved '{syft_file.file_name}'")
+        logger.debug_msg(f"Compressed and saved SBOM in {timer.format_time()}s | {jar_id}")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -72,6 +73,7 @@ class AnalyzerWorker:
         :param jar_id: Primary jar id
         :param grype_file: Metadata object with path to grype file
         """
+        timer = Timer(True)
         with open(grype_file.file_path, 'r') as f:
             grype_data = json.load(f)
 
@@ -89,31 +91,32 @@ class AnalyzerWorker:
                 self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
                 # send to nvd api to get details
-                self._cve_queue.put(vid)
+                self._producer_queue.put(vid)
 
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
-        # save timestamp
-        last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp'].replace("Z", "")[:26])
+        # save timestamp (grype uses RFC 3339 timestamp?)
+        last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp']).astimezone(timezone.utc)
         self._database.upsert_jar_last_grype_scan(self._run_id, jar_id, last_scanned)
+        logger.debug_msg(f"Processed and saved grype report in {timer.format_time()}s | {jar_id}")
 
-    def _process_message(self, message: Message) -> None:
+    def _analyze_files(self, message: Message) -> None:
         """
         Parse syft and grype (if available) files and save it to the database
 
         :param message: Message with all data to parse and save
         """
         # skip if stop order triggered
-        if self._stop_flag.is_set():
+        if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
-            self._analyze_queue.task_done()
+            self._consumer_queue.task_done()
             return
+        # process files
         try:
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
-                logger.info(f"Compressed syft SBOM | {message.jar_id}")
                 message.syft_file.close()
             else:
                 logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
@@ -121,7 +124,6 @@ class AnalyzerWorker:
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
                 message.grype_file.close()
-                logger.info(f"Processed grype scan | {message.jar_id}")
             else:
                 logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
             # mark as done
@@ -133,54 +135,23 @@ class AnalyzerWorker:
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # remove any remaining files
-            if message:
-                message.close()
-            self._analyze_queue.task_done()
+            message.close()
+            self._consumer_queue.task_done()
 
-    def _analyze(self) -> None:
+    def _handle_message(self, message: Message | str) -> Future | None:
         """
-        Start the analyzer worker
+        Handle a message from the queue and return the future submitted to the executor
+
+        :param message: The message to handle
+        :return: The Future task or None if now task made
         """
-        tasks = []
-        with ThreadPoolExecutor(max_workers=self._max_threads) as exe:
-            # first_time_wait_for_tasks("Analyzer", self._analyze_queue, self._scanner_done_flag)  # block until items to process
-            # todo - waiting logic
-            while not self._stop_flag.is_set():
-                try:
-                    message = self._analyze_queue.get(timeout=WRITE_TIMEOUT)
-                    # break if poison pill - ie no more jobs
-                    if not message:
-                        break
-                    # scan
-                    self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
-                    tasks.append(exe.submit(self._process_message, message))
-                except Empty:
-                    """
-                    To prevent deadlocks, the forced timeout with throw this error 
-                    for another iteration of the loop to check conditions
-                    """
-                    continue
+        self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
+        # process sequentially
+        self._analyze_files(message)
+        return None
 
-        # log exit type
-        if self._stop_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
-            concurrent.futures.wait(tasks, timeout=0)  # fail fast
-        else:
-            logger.warn(f"No more files left to process, waiting for analysis to finish. . .")
-            concurrent.futures.wait(tasks)
-            logger.info(f"All files processed, exiting. . .")
-        self._cve_queue.put(None)  # poison queue to signal stop
-
-    def start(self, run_id: int) -> None:
+    def print_statistics_message(self) -> None:
         """
-            Spawn and start the analyzer worker thread
-
-            :param run_id: ID of run
-            """
-        self._run_id = run_id
-        logger.info(f"Initializing analyzer . .")
-        # start the analyzer
-        logger.info(f"Starting analyzer")
-        self._analyze()
-        # done
-        logger.info("All data saved, exiting. . .")
+        Print worker specific statistic messages
+        """
+        pass
