@@ -1,7 +1,6 @@
 import tempfile
 from abc import ABC
 from concurrent.futures import Future
-from queue import Queue
 from threading import Event
 from typing import Any
 
@@ -10,6 +9,7 @@ from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.cache_manager import CacheManager, BYTES_PER_MB
 from shared.logger import logger
+from shared.timer import Timer
 from worker.worker import Worker
 
 """
@@ -24,9 +24,7 @@ SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sb
 
 
 class GeneratorWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int,
-                 generator_queue: Queue[Message | None],
-                 scan_queue: Queue[Message | None]):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int):
         """
         Create a new generator worker that spawns threads to process jars using syft
 
@@ -34,17 +32,14 @@ class GeneratorWorker(Worker, ABC):
         :param database: The database to save grype results and store any error messages in
         :param syft: Syft interface to use for scanning
         :param cache_size: Size of syft cache to use in bytes
-        :param generator_queue: Queue of jar details to generate SBOMs for
-        :param scan_queue: Queue of SBOM to scan with grype
         """
-        super().__init__(master_terminate_flag, database, "generator",
-                         consumer_queue=generator_queue,
-                         producer_queue=scan_queue)
+        super().__init__(master_terminate_flag, database, "generator")
         # config
         self._syft = syft
         self._cache_manager = CacheManager(cache_size)
         # stats
         self._sboms_generated = 0
+        self._seen_jar = False
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
@@ -64,6 +59,7 @@ class GeneratorWorker(Worker, ABC):
         # else generate sbom
         self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         try:
+            timer = Timer(True)
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing syft | {message.jar_id}")
             self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
@@ -72,8 +68,8 @@ class GeneratorWorker(Worker, ABC):
             # report success
             message.syft_file.open()
             self._sboms_generated += 1
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Generated syft sbom | {message.syft_file.file_name}")
+            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                        f"Generated syft sbom in {timer.format_time()}s | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
@@ -104,7 +100,11 @@ class GeneratorWorker(Worker, ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
-        # init file
+        # restart timer on first jar
+        if not self._seen_jar:
+            self._seen_jar = True
+            self._timer.start()
+            # init file
         message.init_syft_file(self._cache_manager, self._work_dir_path)
         # try to reserve space, requeue if no space
         if not self._cache_manager.reserve_space(message.syft_file.file_name, SYFT_SPACE_BUFFER):
@@ -131,9 +131,3 @@ class GeneratorWorker(Worker, ABC):
         logger.info(
             f"Generator has generated {self._sboms_generated} SBOMs "
             f"({self._timer.get_count_per_second(self._sboms_generated):.01f} SBOMs / s)")
-
-    def get_syft_version(self) -> str:
-        """
-        :return: Version of syft being used by this generator
-        """
-        return self._syft.get_version()

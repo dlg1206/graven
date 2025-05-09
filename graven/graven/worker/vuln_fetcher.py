@@ -68,9 +68,7 @@ class CVENotFoundError(IOError):
 
 
 class VulnFetcherWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
-                 analyzer_first_hit_flag: Event = None,
-                 analyzer_done_flag: Event = None):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase):
         """
         Create a new NVD and Mitre Worker
 
@@ -78,12 +76,10 @@ class VulnFetcherWorker(Worker, ABC):
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
-        :param analyzer_first_hit_flag: Flag to indicate that the analyzer added a CVE if using analyzer (Default: None)
-        :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
         super().__init__(master_terminate_flag, database, "vuln_fetcher")
-        self._analyzer_done_flag = analyzer_done_flag
-        self._analyzer_first_hit_flag = analyzer_first_hit_flag
+        self._analyzer_done_flag = None
+        self._analyzer_first_hit_flag = None
         # determine sleep if key is available
         self._api_key_available = True if os.getenv('NVD_API_KEY') else False
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
@@ -185,9 +181,6 @@ class VulnFetcherWorker(Worker, ABC):
             self._database.log_error(self._run_id, Stage.VULN, e, details=details)
             self._database.upsert_cve(self._run_id, cve_id, last_queried=datetime.now(timezone.utc), status_code=1)
 
-        finally:
-            self._consumer_queue.task_done()  # mark task as done
-
     def _handle_none_message(self) -> Literal['continue', 'break']:
         """
         Handle when get none message
@@ -225,6 +218,22 @@ class VulnFetcherWorker(Worker, ABC):
         Print worker specific statistic messages
         """
         pass
+
+    def set_analyzer_first_hit_flag(self, flag: Event) -> None:
+        """
+        Set the first hit flag
+
+        :param: Flag to indicate that the analyzer added a CVE if using analyzer
+        """
+        self._analyzer_first_hit_flag = flag
+
+    def set_analyzer_done_flag(self, flag: Event) -> None:
+        """
+        Set the done flag
+
+        :param: Flag to indicate that the analyzer is finished if using analyzer
+        """
+        self._analyzer_done_flag = flag
 
 
 def _fetch_cwe(cwe_id: str) -> MITREResult:

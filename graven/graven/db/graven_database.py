@@ -102,7 +102,7 @@ class GravenDatabase(MySQLDatabase):
         :param cve_id: CVE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id, 'status_code': None}, fetch_all=False)) != 0
+        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id}, fetch_all=False)) != 0
 
     def has_seen_cwe(self, cwe_id: str) -> bool:
         """
@@ -112,7 +112,7 @@ class GravenDatabase(MySQLDatabase):
         :param cwe_id: CWE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id, 'status_code': None}, fetch_all=False)) != 0
+        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id}, fetch_all=False)) != 0
 
     def get_cve_for_update(self) -> str | None:
         """

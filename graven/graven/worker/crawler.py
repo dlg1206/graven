@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timezone
 from queue import Queue
 from threading import Event
-from typing import Any, Literal
+from typing import Any, Literal, List
 
 import requests
 from requests import RequestException
@@ -27,8 +27,7 @@ MAVEN_HTML_REGEX = re.compile(
 
 class CrawlerWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
-                 crawler_first_hit_flag: Event | None,
-                 crawler_done_flag: Event | None = None,
+                 seed_urls: List[str],
                  update_domain: bool = False,
                  update_jar: bool = False):
         """
@@ -36,24 +35,23 @@ class CrawlerWorker(Worker, ABC):
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
-        :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
-        :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
+        :param seed_urls: List of URLs to for crawler to search
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
         """
-        super().__init__(master_terminate_flag, database, "crawler",
-                         consumer_queue=Queue())
+        super().__init__(master_terminate_flag, database, "crawler")
         # crawler metadata
-        self._crawler_first_hit_flag = crawler_first_hit_flag
-        self._crawler_done_flag = crawler_done_flag
+        self._crawler_first_hit_flag = None
+        self._crawler_done_flag = None
+        self._consumer_queue = Queue()
         # config
+        self._seed_urls = seed_urls
         self._update_domain = update_domain
         self._update_jar = update_jar
         # stats
         self._urls_seen = 0
         # set at runtime
         self._current_domain = None
-        self._seed_urls = None
 
     def _parse_html(self, url: str, html: str) -> None:
         """
@@ -86,8 +84,8 @@ class CrawlerWorker(Worker, ABC):
                 # set if first hit
                 if self._crawler_first_hit_flag and not self._crawler_first_hit_flag.is_set():
                     self._crawler_first_hit_flag.set()
-                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                                 f"Found jar url | {download_url}")
+                logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                            f"Found jar url | {download_url}")
 
     def _process_url(self, url: str) -> None:
         """
@@ -180,15 +178,11 @@ class CrawlerWorker(Worker, ABC):
 
     def _pre_start(self, **kwargs: Any) -> None:
         """
-        Set root url and seed urls
-
-        :param root_url: Root url to start the crawler at
-        :param seed_urls: Optional list of urls to restart crawler at once root has been exhausted
+        Set the initial domain
         """
         # init urls
-        root_url = kwargs['root_url']
+        root_url = self._seed_urls.pop(0)
         self._current_domain = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
-        self._seed_urls = kwargs.get('seed_urls', [])
         # seed queue
         self._consumer_queue.put(self._current_domain)
         # init if updating or dne
@@ -215,3 +209,24 @@ class CrawlerWorker(Worker, ABC):
         logger.info(f"Crawler completed in {self._timer.format_time()}")
         logger.info(
             f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
+
+    """
+                     crawler_first_hit_flag: Event | None,
+                 crawler_done_flag: Event | None = None,
+    """
+
+    def set_first_hit_flag(self, flag: Event) -> None:
+        """
+        Set the first hit flag
+
+        :param: Flag to indicate that the crawler added a new URL if using crawler
+        """
+        self._crawler_first_hit_flag = flag
+
+    def set_done_flag(self, flag: Event) -> None:
+        """
+        Set the done flag
+
+        :param: Flag to indicate that the crawler is finished if using crawler
+        """
+        self._crawler_done_flag = flag

@@ -2,7 +2,6 @@ import tempfile
 import time
 from abc import ABC
 from concurrent.futures import Future
-from queue import Queue
 from threading import Event
 from typing import Any, Literal
 
@@ -29,25 +28,18 @@ RETRY_SLEEP = 10
 
 class DownloaderWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
-                 generator_queue: Queue[Message | None],
-                 crawler_first_hit_flag: Event = None,
-                 crawler_done_flag: Event = None,
                  download_limit_bytes: int = DEFAULT_MAX_CAPACITY):
         """
         Create a new downloader worker that downloads jars from the maven central file tree
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: The database to store any error messages in
-        :param generator_queue: Queue of paths to jars to generate SBOMs for
-        :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
-        :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param download_limit_bytes: Limit the size of jars downloaded (Default: 5 GB)
         """
-        super().__init__(master_terminate_flag, database, "downloader",
-                         producer_queue=generator_queue)
+        super().__init__(master_terminate_flag, database, "downloader")
         # crawler metadata
-        self._crawler_first_hit_flag = crawler_first_hit_flag
-        self._crawler_done_flag = crawler_done_flag
+        self._crawler_first_hit_flag = None
+        self._crawler_done_flag = None
         # config
         self._cache_manager = CacheManager(download_limit_bytes)
         # stats
@@ -79,8 +71,8 @@ class DownloaderWorker(Worker, ABC):
                     file.write(response.content)
             # log success
             message.jar_file.open()
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Downloaded in {timer.format_time()}s | {message.jar_url}")
+            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                        f"Downloaded in {timer.format_time()}s | {message.jar_url}")
             # update cache if needed
             self._cache_manager.update_space(message.jar_id, message.jar_file.get_file_size())
             self._downloaded_jars += 1
@@ -165,6 +157,7 @@ class DownloaderWorker(Worker, ABC):
             logger.info("Waiting for jar url to download. . .")
             self._crawler_first_hit_flag.wait()
             logger.info("jar url found, starting. . .")
+        self._timer.start()  # restart timer
 
     def print_statistics_message(self) -> None:
         """
@@ -173,3 +166,19 @@ class DownloaderWorker(Worker, ABC):
         logger.info(f"Downloader completed in {self._timer.format_time()}")
         logger.info(
             f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
+
+    def set_crawler_first_hit_flag(self, flag: Event) -> None:
+        """
+        Set the first hit flag
+
+        :param: Flag to indicate that the crawler added a new URL if using crawler
+        """
+        self._crawler_first_hit_flag = flag
+
+    def set_crawler_done_flag(self, flag: Event) -> None:
+        """
+        Set the done flag
+
+        :param: Flag to indicate that the crawler is finished if using crawler
+        """
+        self._crawler_done_flag = flag

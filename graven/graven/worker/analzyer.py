@@ -1,7 +1,6 @@
 import json
 from abc import ABC
 from datetime import datetime, timezone
-from queue import Queue
 from threading import Event
 
 import zstandard as zstd
@@ -23,22 +22,17 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 
 
 class AnalyzerWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
-                 analyzer_queue: Queue[Message | None],
-                 analyzer_first_hit_flag: Event = None,
-                 analyzer_done_flag: Event = None):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
-        :param analyzer_queue: Queue of items to save to the database
-        :param analyzer_first_hit_flag: Flag to indicate that the analyzer added a CVE if using analyzer (Default: None)
-        :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
-        super().__init__(master_terminate_flag, database, "analyzer", consumer_queue=analyzer_queue)
-        self._analyzer_first_hit_flag = analyzer_first_hit_flag
-        self._analyzer_done_flag = analyzer_done_flag
+        super().__init__(master_terminate_flag, database, "analyzer")
+        self._analyzer_first_hit_flag = None
+        self._analyzer_done_flag = None
+        self._seen_file = False
         # set at runtime
         self._run_id = None
 
@@ -109,6 +103,7 @@ class AnalyzerWorker(Worker, ABC):
         # process files
         self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
         try:
+            timer = Timer(True)
             # process and save sbom
             if message.syft_file.is_open:
                 self._compress_and_save_sbom(message.jar_id, message.syft_file)
@@ -123,7 +118,7 @@ class AnalyzerWorker(Worker, ABC):
                 logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
             # mark as done
             self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
-            logger.info(f"Saved {message.jar_id}")
+            logger.info(f"Processed in {timer.format_time()}s | {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
@@ -140,6 +135,10 @@ class AnalyzerWorker(Worker, ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
+        # restart timer on first file
+        if not self._seen_file:
+            self._seen_file = True
+            self._timer.start()
         # process sequentially
         self._analyze_files(message)
         return
@@ -160,3 +159,19 @@ class AnalyzerWorker(Worker, ABC):
         Print worker specific statistic messages
         """
         pass
+
+    def set_first_hit_flag(self, flag: Event) -> None:
+        """
+        Set the first hit flag
+
+        :param: Flag to indicate that the analyzer added a CVE if using analyzer
+        """
+        self._analyzer_first_hit_flag = flag
+
+    def set_done_flag(self, flag: Event) -> None:
+        """
+        Set the done flag
+
+        :param: Flag to indicate that the analyzer is finished if using analyzer
+        """
+        self._analyzer_done_flag = flag
