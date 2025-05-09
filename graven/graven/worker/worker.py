@@ -150,6 +150,7 @@ class Worker(ABC):
 
         # poison queue to signal stop if has producer queue
         if self._producer_queue:
+            logger.debug_msg(f"{self._name} | Signaled downstream to stop")
             self._producer_queue.put(None)
 
         # run any worker-specific post run operations

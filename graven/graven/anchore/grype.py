@@ -24,15 +24,17 @@ DB_SOURCE_FILE = "db_source"
 
 
 class GrypeScanFailure(RuntimeError):
-    def __init__(self, file_name: str, stderr: str):
+    def __init__(self, file_name: str, return_code: int, stderr: str = None):
         """
         Create new scan failure
 
         :param file_name: Name of file scanned
         :param stderr: grype stderr output
+        :param stderr: optional grype stderr output
         """
         super().__init__(f"grype scan failed for {file_name}")
         self.file_name = file_name
+        self.return_code = return_code
         self.stderr = stderr
 
 
@@ -190,7 +192,7 @@ class Grype:
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         # non-zero, non-one error
         if result.returncode and result.returncode != 1:
-            raise GrypeScanFailure(file_path, result.stderr.decode())
+            raise GrypeScanFailure(file_path, result.returncode, result.stderr.decode())
         logger.debug_msg(f"Scanned in {timer.format_time()}s | {file_path.split(os.sep)[-1]}")
         return result.returncode
 

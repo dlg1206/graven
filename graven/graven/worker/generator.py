@@ -23,7 +23,7 @@ Description: Use syft to generate SBOMs
 
 # ScannerWorker and AnalyzerWorker get the rest of the threads
 DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
-SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB of space per sbom
+SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sbom
 
 
 class GeneratorWorker(Worker, ABC):
@@ -72,7 +72,7 @@ class GeneratorWorker(Worker, ABC):
             if return_code:
                 logger.warn(f"syft scan had a non-zero exit code: {return_code} | {message.jar_id}")
                 self._database.log_error(self._run_id, Stage.GENERATOR,
-                                         SyftScanFailure(message.syft_file.file_name, return_code),
+                                         SyftScanFailure(message.jar_file.file_name, return_code),
                                          jar_id=message.jar_id,
                                          details={'return_code': return_code})
                 # If cannot generate SBOM, close file - grype will scan jar instead
@@ -80,12 +80,11 @@ class GeneratorWorker(Worker, ABC):
             else:
                 # remove jar since not needed
                 message.jar_file.close()
-
-            # report success
-            message.syft_file.open()
-            self._sboms_generated += 1
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Generated syft sbom | {message.syft_file.file_name}")
+                # report success
+                message.syft_file.open()
+                self._sboms_generated += 1
+                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                                 f"Generated syft sbom | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
@@ -95,9 +94,9 @@ class GeneratorWorker(Worker, ABC):
                                      details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
         except Exception as e:
+            message.close()
             # some unknown error - log and exit early
             logger.error_exp(e)
-            message.close()
             self._database.log_error(self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             return

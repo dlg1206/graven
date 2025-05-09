@@ -111,8 +111,8 @@ class WorkerFactory:
             grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
         else:
             grype = Grype(grype_db_source)
-        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyze_queue,
-                             max_threads)
+        self._cpu_thread_count += max_threads
+        return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyze_queue)
 
     def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
         """
@@ -147,7 +147,8 @@ class WorkerFactory:
 
         timer = Timer(True)
         # create threadpools to be sheared by workers
-        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)  # todo - limit for maven requests and benchmark if better to share or split
+        io_exe = ThreadPoolExecutor(
+            max_workers=self._io_thread_count)  # todo - limit for maven requests and benchmark if better to share or split
         cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)  # todo - cpu
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
@@ -161,7 +162,7 @@ class WorkerFactory:
                                                 seed_urls=seed_urls)),
                     executor.submit(lambda: _graceful_start(downloader.start, run_id, io_exe, root_dir=tmp_dir)),
                     executor.submit(lambda: _graceful_start(generator.start, run_id, cpu_exe, root_dir=tmp_dir)),
-                    executor.submit(lambda: _graceful_start(scanner.start, run_id, tmp_dir)),
+                    executor.submit(lambda: _graceful_start(scanner.start, run_id, cpu_exe, root_dir=tmp_dir)),
                     executor.submit(lambda: _graceful_start(vuln_worker.start, run_id))
                 ]
                 try:
@@ -189,7 +190,9 @@ class WorkerFactory:
                         f.result(timeout=0)
                 except Exception:
                     pass
-
+        # shutdown thread pools
+        io_exe.shutdown()
+        cpu_exe.shutdown()
         # print task durations
         self._database.log_run_end(run_id, exit_code)
         timer.stop()
