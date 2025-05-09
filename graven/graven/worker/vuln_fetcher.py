@@ -1,16 +1,19 @@
 import os
 import time
+from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from queue import Queue, Empty
+from queue import Queue
 from threading import Event
 from typing import List
 
 import requests
 from bs4 import BeautifulSoup
+from requests import RequestException
 
-from db.graven_database import GravenDatabase
+from db.graven_database import GravenDatabase, Stage
 from shared.logger import logger
+from worker.worker import Worker
 
 """
 file: vuln_fetcher.py
@@ -63,20 +66,18 @@ class CVENotFoundError(IOError):
         super().__init__(f"CVE '{cve_id}' does not exist: {nvd_url}")
 
 
-class VulnFetcherWorker:
-    def __init__(self, stop_flag: Event, database: GravenDatabase, cve_queue: Queue[str | None]):
+class VulnFetcherWorker(Worker, ABC):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, cve_queue: Queue[str | None]):
         """
         Create a new NVD and Mitre Worker
 
         'NVD_API_KEY' env variable is used if available
 
-        :param stop_flag: Master event to exit if keyboard interrupt
+        :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param cve_queue: Queue of cves to process
         """
-        self._stop_flag = stop_flag
-        self._database = database
-        self._cve_queue = cve_queue
+        super().__init__(master_terminate_flag, database, "vuln_fetcher", consumer_queue=cve_queue)
         # determine sleep if key is available
         self._api_key_available = True if os.getenv('NVD_API_KEY') else False
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
@@ -84,47 +85,15 @@ class VulnFetcherWorker:
             logger.debug_msg("Using NVD API Key")
         else:
             logger.warn("Not using NVD API Key, this will affect query time")
-
+        # set at runtime
         self._run_id = None
-
-    def _fetch_cwe(self, cwe_id: str) -> MITREResult:
-        """
-        Parse CWE name, description, and website link from MITRE’s CWE site
-
-        :param cwe_id: A string like "CWE-79", "CWE-89", etc.
-        :return: A MITREResult object containing the CWE ID, name, description, and link
-        """
-        mitre_url = f"{MITRE_CWE_ROOT}/{cwe_id.split('-')[1]}.html"
-        r = requests.get(mitre_url)
-        r.raise_for_status()
-        logger.debug_msg(f"Queried {mitre_url}")
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        # 1) Find the CWE name (often in an <h2> tag)
-        h2_tag = soup.find("h2")
-        if h2_tag:
-            cwe_name = h2_tag.get_text(strip=True).removeprefix(f"{cwe_id.upper()}: ")
-        else:
-            cwe_name = None
-
-        # 2) Find the CWE description (look for a <div> with id="Description" or "Abstract")
-        desc_div = soup.find("div", id="Description")
-        if not desc_div:
-            desc_div = soup.find("div", id="Abstract")
-
-        if desc_div:
-            cwe_description = desc_div.get_text(strip=True).removeprefix("Description")
-        else:
-            cwe_description = None
-
-        return MITREResult(cwe_name, cwe_description, mitre_url)
 
     def _fetch_cve(self, cve_id: str) -> NVDResult:
         """
         Get CVE data from NVD
 
         :param cve_id: CVE to get cwes for
-        :raises HTTPError: If the request fails
+        :raises RequestException: If the request fails
         :raises CVENotFoundError: If request success, but returns no CVE matches
         :return: NVD Result of cve data
         """
@@ -157,61 +126,88 @@ class VulnFetcherWorker:
         # return results
         return NVDResult(cvss_score, cve['published'], description, nvd_url, datetime.now(timezone.utc), cwe_ids)
 
-    def _query_nvd(self) -> None:
+    def _handle_message(self, message: str) -> None:
         """
-        Retrieve CVE data from NVD as new CVEs are discovered
-        """
-        # block until items to process
-        # first_time_wait_for_tasks("NVD", self._cve_queue, self._analyzer_done_flag)
-        # todo - waiting logic
+        Handle a message from the queue and return the future submitted to the executor
 
-        while not self._stop_flag.is_set():
-            try:
-                cve_id = self._cve_queue.get(timeout=1)
-                # break if poison pill - ie no more jobs
-                if not cve_id:
-                    break
-                # if new id, fetch and save results
-                nvd_result = self._fetch_cve(cve_id)
-                self._database.upsert_cve(self._run_id, cve_id, cvss=nvd_result.cvss,
-                                          publish_date=nvd_result.publish_date,
-                                          description=nvd_result.description, source=nvd_result.source,
-                                          last_queried=nvd_result.last_queried)
-                logger.info(f"Added details for '{cve_id}'")
-                # add cwes
-                for cwe_id in nvd_result.cwes:
-                    # add cwe details if new
-                    if not self._database.has_seen_cwe(cwe_id):
-                        mitre_result = self._fetch_cwe(cwe_id)
+        :param message: The message to handle
+        :return: The Future task or None if now task made
+        """
+        cve_id = message
+        try:
+            nvd_result = self._fetch_cve(cve_id)
+            self._database.upsert_cve(self._run_id, cve_id, cvss=nvd_result.cvss,
+                                      publish_date=nvd_result.publish_date,
+                                      description=nvd_result.description, source=nvd_result.source,
+                                      last_queried=nvd_result.last_queried)
+            logger.info(f"Added details for '{cve_id}'")
+            # add cwes
+            for cwe_id in nvd_result.cwes:
+                # add cwe details if new
+                if not self._database.has_seen_cwe(cwe_id):
+                    try:
+                        mitre_result = _fetch_cwe(cwe_id)
                         self._database.upsert_cwe(self._run_id, cwe_id, name=mitre_result.name,
                                                   description=mitre_result.description, source=mitre_result.source)
                         logger.info(f"Added details for '{cwe_id}'")
-                    # associate cve to cwe
-                    self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
+                    except (RequestException, Exception) as e:
+                        # handle failed to get cwe
+                        details = {'cwe_id': cwe_id}
+                        if hasattr(e, 'response'):
+                            details.update({'status_code': e.response.status_code})
+                        self._database.log_error(self._run_id, Stage.VULN, e, details=details)
+                # associate cve to cwe
+                self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
 
-                self._cve_queue.task_done()  # mark task as done
-            except Empty:
-                """
-                To prevent deadlocks, the forced timeout with throw this error 
-                for another iteration of the loop to check conditions
-                """
-                continue
+        except (RequestException, CVENotFoundError, Exception) as e:
+            # handle failed to get cve
+            logger.error_exp(e)
+            details = None
+            if isinstance(e, RequestException):
+                details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
+            if isinstance(e, CVENotFoundError):
+                details = {'cve_id': e.cve_id}
+            self._database.log_error(self._run_id, Stage.VULN, e, details=details)
 
-        # log exit type
-        if self._stop_flag.is_set():
-            logger.warn(f"Stop order received, exiting. . .")
-        else:
-            logger.warn(f"No more CVEs to query for. . .")
+        finally:
+            self._consumer_queue.task_done()  # mark task as done
 
-    def start(self, run_id: int) -> None:
+    def print_statistics_message(self) -> None:
         """
-        Spawn and start the NVD worker thread
-
-        :param run_id: ID of run
+        Print worker specific statistic messages
         """
-        self._run_id = run_id
-        logger.info(f"Initializing NVD API . .")
-        # start the scanner
-        logger.info(f"Starting NVD API")
-        self._query_nvd()
-        # done
+        pass
+
+
+def _fetch_cwe(cwe_id: str) -> MITREResult:
+    """
+    Parse CWE name, description, and website link from MITRE’s CWE site
+
+    :param cwe_id: A string like "CWE-79", "CWE-89", etc.
+    :raises RequestException: If fail to get CWE page
+    :return: A MITREResult object containing the CWE ID, name, description, and link
+    """
+    mitre_url = f"{MITRE_CWE_ROOT}/{cwe_id.split('-')[1]}.html"
+    r = requests.get(mitre_url)
+    r.raise_for_status()
+    logger.debug_msg(f"Queried {mitre_url}")
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # 1) Find the CWE name (often in an <h2> tag)
+    h2_tag = soup.find("h2")
+    if h2_tag:
+        cwe_name = h2_tag.get_text(strip=True).removeprefix(f"{cwe_id.upper()}: ")
+    else:
+        cwe_name = None
+
+    # 2) Find the CWE description (look for a <div> with id="Description" or "Abstract")
+    desc_div = soup.find("div", id="Description")
+    if not desc_div:
+        desc_div = soup.find("div", id="Abstract")
+
+    if desc_div:
+        cwe_description = desc_div.get_text(strip=True).removeprefix("Description")
+    else:
+        cwe_description = None
+
+    return MITREResult(cwe_name, cwe_description, mitre_url)

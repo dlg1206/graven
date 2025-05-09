@@ -131,7 +131,8 @@ class GeneratorWorker(Worker, ABC):
         """
         logger.info(f"Generator completed in {self._timer.format_time()}s")
         logger.info(
-            f"Generator has generated {self._sboms_generated} SBOMs ({self._timer.get_count_per_second(self._sboms_generated):.01f} jars / s)")
+            f"Generator has generated {self._sboms_generated} SBOMs "
+            f"({self._timer.get_count_per_second(self._sboms_generated):.01f} SBOMs / s)")
 
     def get_syft_version(self) -> str:
         """
