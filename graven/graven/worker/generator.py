@@ -67,24 +67,14 @@ class GeneratorWorker(Worker, ABC):
         try:
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing syft | {message.jar_id}")
-            return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
-            # report error and continue
-            if return_code:
-                logger.warn(f"syft scan had a non-zero exit code: {return_code} | {message.jar_id}")
-                self._database.log_error(self._run_id, Stage.GENERATOR,
-                                         SyftScanFailure(message.jar_file.file_name, return_code),
-                                         jar_id=message.jar_id,
-                                         details={'return_code': return_code})
-                # If cannot generate SBOM, close file - grype will scan jar instead
-                message.syft_file.close()
-            else:
-                # remove jar since not needed
-                message.jar_file.close()
-                # report success
-                message.syft_file.open()
-                self._sboms_generated += 1
-                logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                                 f"Generated syft sbom | {message.syft_file.file_name}")
+            self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
+            # remove jar since not needed
+            message.jar_file.close()
+            # report success
+            message.syft_file.open()
+            self._sboms_generated += 1
+            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                             f"Generated syft sbom | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
