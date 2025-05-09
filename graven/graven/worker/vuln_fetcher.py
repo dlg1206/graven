@@ -4,7 +4,7 @@ from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event
-from typing import List, Literal
+from typing import List, Literal, Any
 
 import requests
 from bs4 import BeautifulSoup
@@ -27,9 +27,11 @@ and https://github.com/dlg1206/threat-actor-database/blob/v1.0.0/src/threat_acto
 # prevent rate limiting
 PUBLIC_RATE_LIMIT_SLEEP_SECONDS = 6
 API_RATE_LIMIT_SLEEP_SECONDS = 0.6
+# endpoints
 NVD_CVE_ENDPOINT = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-
 MITRE_CWE_ROOT = "https://cwe.mitre.org/data/definitions"
+
+RETRY_SLEEP = 10
 
 
 @dataclass
@@ -66,7 +68,9 @@ class CVENotFoundError(IOError):
 
 
 class VulnFetcherWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, analyzer_done_flag: Event = None):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
+                 analyzer_first_hit_flag: Event = None,
+                 analyzer_done_flag: Event = None):
         """
         Create a new NVD and Mitre Worker
 
@@ -74,10 +78,12 @@ class VulnFetcherWorker(Worker, ABC):
 
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
+        :param analyzer_first_hit_flag: Flag to indicate that the analyzer added a CVE if using analyzer (Default: None)
         :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
         super().__init__(master_terminate_flag, database, "vuln_fetcher")
         self._analyzer_done_flag = analyzer_done_flag
+        self._analyzer_first_hit_flag = analyzer_first_hit_flag
         # determine sleep if key is available
         self._api_key_available = True if os.getenv('NVD_API_KEY') else False
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
@@ -189,9 +195,10 @@ class VulnFetcherWorker(Worker, ABC):
         # not using the analyzer or are using and done flag is set - means no more cves will be added
         if not self._analyzer_done_flag or self._analyzer_done_flag.is_set():
             return 'break'
-        # else using the crawler and more jars will come
+        # else using the analyzer and cves still coming
         logger.warn(
-            f"Found no CVEs to download but analyzer is still running, continuing. . .")
+            f"Found no CVEs to download but analyzer is still running, sleeping for {RETRY_SLEEP}s. . .")
+        time.sleep(RETRY_SLEEP)
         return 'continue'
 
     def _poll_consumer_queue(self) -> str | None:
@@ -199,6 +206,19 @@ class VulnFetcherWorker(Worker, ABC):
         Get a message from the database
         """
         return self._database.get_cve_for_update()
+
+    def _pre_start(self, **kwargs: Any) -> None:
+        """
+        Set the working directory to download jars to
+
+        :param root_dir: Temp root directory working in
+        """
+        # if using the analyzer, wait until find a hit
+        # todo - option to skip wait
+        if self._analyzer_first_hit_flag:
+            logger.info("Waiting for CVE to query. . .")
+            self._analyzer_first_hit_flag.wait()
+            logger.info("CVE found, starting. . .")
 
     def print_statistics_message(self) -> None:
         """

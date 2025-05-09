@@ -24,7 +24,6 @@ Description: Download jars into temp directories to be scanned
 @author Derek Garcia
 """
 
-DOWNLOAD_ACQUIRE_TIMEOUT = 30
 RETRY_SLEEP = 10
 DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS = 20
 
@@ -67,10 +66,10 @@ class DownloaderWorker(Worker, ABC):
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
-            message.close()
-            self._consumer_queue.task_done()
+            self._handle_shutdown(message)
             return
         # attempt to download jar
+        self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
         try:
             # init jar
             message.init_jar_file(self._cache_manager, self._work_dir_path)
@@ -121,7 +120,6 @@ class DownloaderWorker(Worker, ABC):
                 self._database.shelf_message(message.jar_id)
                 return None
             # space reserved, kickoff job
-            self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
             return self._thread_pool_executor.submit(self._download_jar, message)
         except (RequestException, ExceedsCacheLimitError) as e:
             logger.error_exp(e)

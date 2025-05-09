@@ -57,13 +57,14 @@ class GeneratorWorker(Worker, ABC):
 
         :param message: Message with jar path and additional details
         """
+
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
-            message.close()
-            self._consumer_queue.task_done()
+            self._handle_shutdown(message)
             return
         # else generate sbom
+        self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         try:
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing syft | {message.jar_id}")
@@ -114,7 +115,6 @@ class GeneratorWorker(Worker, ABC):
             self._consumer_queue.put(message)
             return None
         # else process
-        self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         return self._thread_pool_executor.submit(self._generate_sbom, message)
 
     def _pre_start(self, **kwargs: Any) -> None:

@@ -1,7 +1,6 @@
 import json
 import os
 from abc import ABC
-from concurrent.futures import Future
 from datetime import datetime, timezone
 from math import floor
 from queue import Queue
@@ -24,15 +23,13 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 @author Derek Garcia
 """
 
-WRITE_TIMEOUT = 1
-# GeneratorWorker and ScannerWorker get the rest of the threads
-# careful increasing at risk over buffer overflow during compression
 DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
 class AnalyzerWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
                  analyzer_queue: Queue[Message | None],
+                 analyzer_first_hit_flag: Event = None,
                  analyzer_done_flag: Event = None):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
@@ -40,9 +37,11 @@ class AnalyzerWorker(Worker, ABC):
         :param master_terminate_flag: Master event to exit if keyboard interrupt
         :param database: Database to save results to
         :param analyzer_queue: Queue of items to save to the database
+        :param analyzer_first_hit_flag: Flag to indicate that the analyzer added a CVE if using analyzer (Default: None)
         :param analyzer_done_flag: Flag to indicate that the analyzer is finished if using analyzer (Default: None)
         """
         super().__init__(master_terminate_flag, database, "analyzer", consumer_queue=analyzer_queue)
+        self._analyzer_first_hit_flag = analyzer_first_hit_flag
         self._analyzer_done_flag = analyzer_done_flag
         # set at runtime
         self._run_id = None
@@ -86,6 +85,9 @@ class AnalyzerWorker(Worker, ABC):
             if self._database.has_seen_cve(vid):
                 logger.debug_msg(f"Seen '{vid}', skipping. . .")
             else:
+                # set if first hit
+                if self._analyzer_first_hit_flag and not self._analyzer_done_flag.is_set():
+                    self._analyzer_first_hit_flag.set()
                 self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
 
@@ -106,9 +108,10 @@ class AnalyzerWorker(Worker, ABC):
         if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
-            self._consumer_queue.task_done()
+            self._handle_shutdown(message)
             return
         # process files
+        self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
         try:
             # process and save sbom
             if message.syft_file.is_open:
@@ -134,24 +137,27 @@ class AnalyzerWorker(Worker, ABC):
             message.close()
             self._consumer_queue.task_done()
 
-    def _handle_message(self, message: Message | str) -> Future | None:
+    def _handle_message(self, message: Message | str) -> None:
         """
         Handle a message from the queue and return the future submitted to the executor
 
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
-        self._database.update_jar_status(message.jar_id, Stage.ANALYZER)
         # process sequentially
         self._analyze_files(message)
-        return None
+        return
 
     def _post_start(self) -> None:
         """
         Set the done flag if using
         """
+        # indicate the analyzer is finished
         if self._analyzer_done_flag:
             self._analyzer_done_flag.set()
+        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        if self._analyzer_first_hit_flag:
+            self._analyzer_first_hit_flag.set()
 
     def print_statistics_message(self) -> None:
         """

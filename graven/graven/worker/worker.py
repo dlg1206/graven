@@ -19,8 +19,6 @@ Description: Generic worker to handle common tasks
 """
 
 QUEUE_POLL_TIMEOUT = 1
-QUEUE_POLL_RETRY_SLEEP = .1
-THREAD_ACQUIRE_TIMEOUT = 30
 
 
 class Worker(ABC):
@@ -49,6 +47,17 @@ class Worker(ABC):
         self._run_id = None
         self._thread_pool_executor: ThreadPoolExecutor | None = None
         self._tasks = []
+
+    def _handle_shutdown(self, message: Message) -> None:
+        """
+        Handle shutdown when interrupt is given
+
+        :param message: Message to close
+        """
+        message.close()
+        self._database.update_jar_status(message.jar_id, None)  # reset
+        if self._consumer_queue:
+            self._consumer_queue.task_done()
 
     def _poll_consumer_queue(self) -> Message | str | None:
         """

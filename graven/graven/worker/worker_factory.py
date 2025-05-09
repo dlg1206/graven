@@ -50,6 +50,7 @@ class WorkerFactory:
 
         # shared analyzer objects
         self._analyzer_queue: Queue[Message | None] = Queue()
+        self._analyzer_first_hit_flag = Event()
         self._analyzer_done_flag = Event()
 
     def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool,
@@ -119,7 +120,8 @@ class WorkerFactory:
         :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
-        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyzer_queue, self._analyzer_done_flag)
+        return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyzer_queue,
+                              self._analyzer_first_hit_flag, self._analyzer_done_flag)
 
     def run_workers(self, crawler: CrawlerWorker, downloader: DownloaderWorker, generator: GeneratorWorker,
                     scanner: ScannerWorker, analyzer: AnalyzerWorker, seed_urls: List[str]) -> int:
@@ -136,7 +138,8 @@ class WorkerFactory:
         """
         logger.info("Launching Graven worker threads...")
         # for getting cve details
-        vuln_worker = VulnFetcherWorker(self._interrupt_stop_flag, self._database, self._analyzer_done_flag)
+        vuln_worker = VulnFetcherWorker(self._interrupt_stop_flag, self._database, self._analyzer_first_hit_flag,
+                                        self._analyzer_done_flag)
         exit_code = 0  # assume ok
         run_id = self._database.log_run_start(generator.get_syft_version(),
                                               scanner.get_grype_version(),

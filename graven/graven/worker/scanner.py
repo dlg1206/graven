@@ -61,10 +61,10 @@ class ScannerWorker(Worker, ABC):
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
-            message.close()
-            self._consumer_queue.task_done()
+            self._handle_shutdown(message)
             return
         # scan
+        self._database.update_jar_status(message.jar_id, Stage.SCANNER)
         try:
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing grype | {message.jar_id}")
@@ -119,7 +119,6 @@ class ScannerWorker(Worker, ABC):
             self._consumer_queue.put(message)
             return None
         # else process
-        self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
     def print_statistics_message(self) -> None:
