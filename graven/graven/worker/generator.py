@@ -3,13 +3,13 @@ import tempfile
 from abc import ABC
 from concurrent.futures import Future
 from queue import Queue
-from tempfile import TemporaryDirectory
 from threading import Event
 from typing import Any
 
 from anchore.syft import Syft, SyftScanFailure
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
+from shared.cache_manager import CacheManager, BYTES_PER_MB
 from shared.logger import logger
 from worker.worker import Worker
 
@@ -23,6 +23,7 @@ Description: Use syft to generate SBOMs
 
 # ScannerWorker and AnalyzerWorker get the rest of the threads
 DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
+SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB of space per sbom
 
 
 class GeneratorWorker(Worker, ABC):
@@ -51,6 +52,7 @@ class GeneratorWorker(Worker, ABC):
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
+        self._cache_manager: CacheManager | None = None
 
     def _generate_sbom(self, message: Message) -> None:
         """
@@ -68,8 +70,6 @@ class GeneratorWorker(Worker, ABC):
         try:
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing syft | {message.jar_id}")
-            # init file
-            message.open_syft_file(self._work_dir_path)
             return_code = self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             # report error and continue
             if return_code:
@@ -85,6 +85,7 @@ class GeneratorWorker(Worker, ABC):
                 message.jar_file.close()
 
             # report success
+            self._cache_manager.update_space(message.syft_file.file_name, )
             self._sboms_generated += 1
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Generated syft sbom | {message.syft_file.file_name}")
@@ -119,6 +120,15 @@ class GeneratorWorker(Worker, ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
+        # init file
+        message.init_syft_file(self._cache_manager, self._work_dir_path)
+        # try to reserve space, requeue if no space
+        if not self._cache_manager.reserve_space(message.syft_file.file_name, SYFT_SPACE_BUFFER):
+            logger.warn("No space left in cache, trying later. . .")
+            message.syft_file.close()
+            self._consumer_queue.put(message)
+            return None
+        # else process
         self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         return self._thread_pool_executor.submit(self._generate_sbom, message)
 
@@ -129,6 +139,7 @@ class GeneratorWorker(Worker, ABC):
         :param root_dir: Temp root directory working in
         """
         self._work_dir_path = tempfile.mkdtemp(prefix='syft_', dir=kwargs['root_dir'])
+        self._cache_manager = CacheManager()
 
     def print_statistics_message(self) -> None:
         """

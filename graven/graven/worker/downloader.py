@@ -3,8 +3,7 @@ import time
 from abc import ABC
 from concurrent.futures import Future
 from queue import Queue
-from tempfile import TemporaryDirectory
-from threading import Event, Semaphore
+from threading import Event
 from typing import Any, Literal
 
 import requests
@@ -12,6 +11,7 @@ from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
+from shared.cache_manager import CacheManager, DEFAULT_MAX_CAPACITY, ExceedsCacheLimitError
 from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
@@ -24,7 +24,6 @@ Description: Download jars into temp directories to be scanned
 @author Derek Garcia
 """
 
-DEFAULT_MAX_JAR_LIMIT = 100  # limit the number of jars downloaded at one time
 DOWNLOAD_ACQUIRE_TIMEOUT = 30
 RETRY_SLEEP = 10
 DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS = 20
@@ -36,7 +35,7 @@ class DownloaderWorker(Worker, ABC):
                  crawler_first_hit_flag: Event = None,
                  crawler_done_flag: Event = None,
                  max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS,
-                 download_limit: int = DEFAULT_MAX_JAR_LIMIT):
+                 download_limit_bytes: int = DEFAULT_MAX_CAPACITY):
         """
         Create a new downloader worker that downloads jars from the maven central file tree
 
@@ -45,7 +44,7 @@ class DownloaderWorker(Worker, ABC):
         :param generator_queue: Queue of paths to jars to generate SBOMs for
         :param crawler_first_hit_flag: Flag to indicate that the crawler added a new URL if using crawler (Default: None)
         :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
-        :param download_limit: Max number of jars to be downloaded at one time (Default: 100)
+        :param download_limit_bytes: Limit the size of jars downloaded (Default: 5 GB)
         """
         super().__init__(master_terminate_flag, database, "downloader",
                          thread_limit=max_concurrent_requests,
@@ -54,12 +53,13 @@ class DownloaderWorker(Worker, ABC):
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
         # config
-        self._download_limit = Semaphore(download_limit)
+        self._download_limit_bytes = download_limit_bytes
         # stats
         self._downloaded_jars = 0
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
+        self._cache_manager: CacheManager | None = None
 
     def _download_jar(self, message: Message) -> None:
         """
@@ -76,15 +76,18 @@ class DownloaderWorker(Worker, ABC):
         # attempt to download jar
         try:
             # init jar
-            message.open_jar_file(self._work_dir_path, self._download_limit)
+            message.init_jar_file(self._cache_manager, self._work_dir_path)
             timer = Timer(True)
             with requests.get(message.jar_url) as response:
                 response.raise_for_status()
                 with open(message.jar_file.file_path, 'wb') as file:
                     file.write(response.content)
             # log success
+            message.jar_file.open()
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Downloaded in {timer.format_time()}s | {message.jar_url}")
+            # update cache if needed
+            self._cache_manager.update_space(message.jar_id, message.jar_file.get_file_size())
             self._downloaded_jars += 1
             # send downstream
             self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_GEN)
@@ -104,11 +107,38 @@ class DownloaderWorker(Worker, ABC):
     def _handle_message(self, message: Message | str) -> Future | None:
         """
         Handle a message from the queue and return the future submitted to the executor
+        Message has already been cleared for download
 
         :param message: The message to handle
+        :return: Task if one was submitted, None otherwise
         """
-        self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
-        return self._thread_pool_executor.submit(self._download_jar, message)
+        try:
+            # ensure space available
+            response = requests.head(message.jar_url, allow_redirects=True)
+            content_length = int(response.headers.get('content-length', 0))  # todo - content is 0?
+            # warn if length not present
+            if not content_length:
+                logger.warn(f"content-length is 0 | {message.jar_url}")
+            # try to reserve space, requeue if no space
+            if not self._cache_manager.reserve_space(message.jar_id, content_length):
+                logger.warn("No space left in cache, trying later. . .")
+                self._database.shelf_message(message.jar_id)
+                return None
+            # space reserved, kickoff job
+            self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
+            return self._thread_pool_executor.submit(self._download_jar, message)
+        except (RequestException, ExceedsCacheLimitError) as e:
+            logger.error_exp(e)
+            if isinstance(e, RequestException):
+                # url dne - error and remove from pipeline
+                details = {'status_code': e.response.status_code}
+            else:
+                # exceed total cache, reject
+                details = {'file_size': e.file_size, 'exceeds_by': e.exceeds_by}
+            # save error
+            self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
+            self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
+            message.close()
 
     def _handle_none_message(self) -> Literal['continue', 'break']:
         """
@@ -127,11 +157,6 @@ class DownloaderWorker(Worker, ABC):
         """
         Get a message from the database
         """
-        # limit number of jars
-        # todo - replace count with space available
-        if not self._download_limit.acquire(timeout=DOWNLOAD_ACQUIRE_TIMEOUT):
-            logger.warn("Failed to acquire lock; retrying. . .")
-            return None
         return self._database.get_message_for_update()
 
     def _pre_start(self, **kwargs: Any) -> None:
@@ -141,6 +166,7 @@ class DownloaderWorker(Worker, ABC):
         :param root_dir: Temp root directory working in
         """
         self._work_dir_path = tempfile.mkdtemp(prefix='jar_', dir=kwargs['root_dir'])
+        self._cache_manager = CacheManager(self._download_limit_bytes)
         # if using the crawler, wait until find a hit
         # todo - option to skip wait
         if self._crawler_first_hit_flag:

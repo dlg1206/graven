@@ -149,10 +149,13 @@ class Worker(ABC):
                         break
                     continue
 
-                # create task
                 task = self._handle_message(message)
                 if task:
+                    # add task
                     self._tasks.append(task)
+                else:
+                    # else release
+                    self._thread_limit_semaphore.release()
             except Empty:
                 """
                 To prevent deadlocks, the forced timeout with throw this error 

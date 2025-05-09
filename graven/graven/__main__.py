@@ -5,10 +5,11 @@ from dotenv import load_dotenv
 
 from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
+from shared.cache_manager import bytes_to_mb, DEFAULT_MAX_CAPACITY
 from shared.logger import Level, logger
 from worker.analzyer import DEFAULT_MAX_ANALYZER_THREADS
 from worker.crawler import DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS
-from worker.downloader import DEFAULT_MAX_JAR_LIMIT, DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS
+from worker.downloader import DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS
 from worker.generator import DEFAULT_MAX_GENERATOR_THREADS
 from worker.scanner import DEFAULT_MAX_SCANNER_THREADS
 from worker.worker_factory import WorkerFactory
@@ -119,16 +120,18 @@ def _create_parser() -> ArgumentParser:
                                   default=DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS)
 
     downloader_group.add_argument("--download-limit",
-                                  metavar="<number of jars>",
+                                  metavar="<cache size in MB>",
                                   type=int,
-                                  help=f"Max number of jars allowed to be to downloaded local at once (Default: {DEFAULT_MAX_JAR_LIMIT})",
-                                  default=DEFAULT_MAX_JAR_LIMIT)
+                                  help=f"Max number of jars allowed to be to downloaded local at once "
+                                       f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)",
+                                  default=DEFAULT_MAX_CAPACITY)
 
     generator_group = parser.add_argument_group("Generator Options")
     generator_group.add_argument("--max-generator-threads",
                                  metavar="<number of the threads>",
                                  type=int,
-                                 help=f"Max number of threads allowed to be used to generate sboms. Increase with caution (Default: {DEFAULT_MAX_GENERATOR_THREADS})",
+                                 help=f"Max number of threads allowed to be used to generate sboms. "
+                                      f"Increase with caution (Default: {DEFAULT_MAX_GENERATOR_THREADS})",
                                  default=DEFAULT_MAX_GENERATOR_THREADS)
 
     generator_group.add_argument("--syft-path",

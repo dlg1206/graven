@@ -122,6 +122,14 @@ class GravenDatabase(MySQLDatabase):
         """
         return len(self._select(Table.ARTIFACT, where_equals={'purl': purl}, fetch_all=False)) != 0
 
+    def shelf_message(self, jar_id: str) -> None:
+        """
+        Deque message for later analysis
+
+        :param jar_id: id of the jar being shelled
+        """
+        self._update(Table.JAR, {'status': None}, where_equals={'jar_id': jar_id})
+
     def get_message_for_update(self) -> Message | None:
         """
         Get a jar that has not been process and lock for update

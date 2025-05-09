@@ -7,6 +7,7 @@ from threading import Event
 from anchore.grype import GrypeScanFailure, Grype
 from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
+from shared.cache_manager import CacheManager
 from shared.logger import logger
 from shared.timer import Timer
 
@@ -47,6 +48,7 @@ class ScannerWorker:
         self._timer = Timer()
         self._sboms_scanned = 0
         self._run_id = None
+        self._cache_manager: CacheManager | None = None
 
     def _process_message(self, message: Message, work_dir_path: str) -> None:
         """
@@ -63,7 +65,7 @@ class ScannerWorker:
             return
         # scan
         try:
-            message.open_grype_file(work_dir_path)
+            message.init_grype_file(self._cache_manager, work_dir_path)
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._stop_flag.is_set() else ''}"
                              f"Queuing grype | {message.jar_id}")
             return_code = self._grype.scan(message.syft_file.file_path, message.grype_file.file_path)
@@ -146,6 +148,7 @@ class ScannerWorker:
         :param work_dir_path: Path to save the grype reports to
         """
         self._run_id = run_id
+        self._cache_manager = CacheManager()
         logger.info(f"Initializing scanner . .")
         # start the scanner
         logger.info(f"Starting scanner using {self._max_threads} threads")
