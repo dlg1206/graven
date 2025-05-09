@@ -2,7 +2,7 @@ import concurrent
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, Future
 from queue import Queue, Empty
-from threading import Event, Semaphore
+from threading import Event
 from typing import Any, Literal
 
 from db.graven_database import GravenDatabase
@@ -28,7 +28,6 @@ class Worker(ABC):
     def __init__(self, master_terminate_flag: Event,
                  database: GravenDatabase,
                  name: str,
-                 thread_limit: int = None,
                  consumer_queue: Queue[Any | None] = None,
                  producer_queue: Queue[Any | None] = None):
         """
@@ -43,7 +42,6 @@ class Worker(ABC):
         self._master_terminate_flag = master_terminate_flag
         self._database = database
         self._name = name
-        self._thread_limit_semaphore = Semaphore(thread_limit) if thread_limit else None
         self._consumer_queue = consumer_queue
         self._producer_queue = producer_queue
         self._timer = Timer()
@@ -88,25 +86,6 @@ class Worker(ABC):
         # other tasks left to process
         return 'continue'
 
-    def _acquire_thread_lock(self) -> bool:
-        """
-        Util method to acquire thread lock if cap is set
-
-        :return: True if acquired lock, false otherwise
-        """
-        # skip acquire if no cap
-        if not self._thread_limit_semaphore:
-            return True
-        # attempt to acquire lock
-        return self._thread_limit_semaphore.acquire(timeout=THREAD_ACQUIRE_TIMEOUT)
-
-    def _release_thread_lock(self) -> None:
-        """
-        Util method to release thread lock if cap is set
-        """
-        if self._thread_limit_semaphore:
-            self._thread_limit_semaphore.release()
-
     def _pre_start(self, **kwargs: Any) -> None:
         """
         Optional pre start conditions to handle
@@ -137,25 +116,16 @@ class Worker(ABC):
         self._timer.start()
         while not self._master_terminate_flag.is_set():
             try:
-                # limit threads if cap is set
-                if not self._acquire_thread_lock():
-                    logger.warn(f"{self._name} | Failed to acquire thread lock; retrying. . .")
-                    continue
                 message = self._poll_consumer_queue()
                 # handle poison pill
                 if not message:
-                    self._thread_limit_semaphore.release()
-                    if self._handle_none_message() == 'break':
-                        break
-                    continue
-
+                    if self._handle_none_message() == 'continue':
+                        continue
+                    break
+                # add task
                 task = self._handle_message(message)
                 if task:
-                    # add task
                     self._tasks.append(task)
-                else:
-                    # else release
-                    self._thread_limit_semaphore.release()
             except Empty:
                 """
                 To prevent deadlocks, the forced timeout with throw this error 
@@ -164,7 +134,6 @@ class Worker(ABC):
                 # determine whether to continue or break
                 if self._handle_empty_consumer_queue() == 'continue':
                     continue
-                # break
                 break
         # stop
         self._timer.stop()
@@ -186,10 +155,6 @@ class Worker(ABC):
         # run any worker-specific post run operations
         self._post_start()
         self.print_statistics_message()
-
-        # cleanup
-        self._run_id = None
-        self._thread_pool_executor = None
 
     @abstractmethod
     def _handle_message(self, message: Message | str) -> Future | None:

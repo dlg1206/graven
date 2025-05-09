@@ -66,8 +66,7 @@ class WorkerFactory:
         """
         self._io_thread_count += max_concurrent_requests  # reserve threads
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
-                             self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar,
-                             max_concurrent_requests)
+                             self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar)
 
     def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
         """
@@ -79,8 +78,7 @@ class WorkerFactory:
         """
         self._io_thread_count += max_concurrent_requests
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
-                                self._crawler_first_hit_flag, self._crawler_done_flag, max_concurrent_requests,
-                                download_limit)
+                                self._crawler_first_hit_flag, self._crawler_done_flag, download_limit)
 
     def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
         """
@@ -96,8 +94,7 @@ class WorkerFactory:
         else:
             syft = Syft()
         self._cpu_thread_count += max_threads
-        return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue,
-                               max_threads)
+        return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue)
 
     def create_scanner_worker(self, max_threads: int, grype_path: str = None,
                               grype_db_source: str = None) -> ScannerWorker:
@@ -150,7 +147,7 @@ class WorkerFactory:
 
         timer = Timer(True)
         # create threadpools to be sheared by workers
-        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)  # todo - limit for maven requests
+        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)  # todo - limit for maven requests and benchmark if better to share or split
         cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)  # todo - cpu
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:

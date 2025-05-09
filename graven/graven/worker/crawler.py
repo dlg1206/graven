@@ -33,8 +33,7 @@ class CrawlerWorker(Worker, ABC):
                  crawler_first_hit_flag: Event | None,
                  crawler_done_flag: Event | None = None,
                  update_domain: bool = False,
-                 update_jar: bool = False,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_CRAWLER_REQUESTS):
+                 update_jar: bool = False):
         """
         Create a new crawler worker that recursively parses the maven central file tree
 
@@ -44,10 +43,8 @@ class CrawlerWorker(Worker, ABC):
         :param crawler_done_flag: Flag to indicate that the crawler is finished if using crawler (Default: None)
         :param update_domain: Update a domain if already seen (Default: False)
         :param update_jar: Update a jar if already seen (Default: False)
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         """
         super().__init__(master_terminate_flag, database, "crawler",
-                         thread_limit=max_concurrent_requests,
                          consumer_queue=Queue())
         # crawler metadata
         self._crawler_first_hit_flag = crawler_first_hit_flag
@@ -123,8 +120,7 @@ class CrawlerWorker(Worker, ABC):
                 details['status_code'] = e.response.status_code
             self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
         finally:
-            # mark as done and release thread
-            self._release_thread_lock()
+            # mark as done
             self._consumer_queue.task_done()
 
     def _handle_empty_consumer_queue(self) -> Literal['continue', 'break']:
@@ -180,7 +176,6 @@ class CrawlerWorker(Worker, ABC):
                 logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
                 # mark as none and release
                 self._consumer_queue.task_done()
-                self._release_thread_lock()
                 return None
 
         # else parse url

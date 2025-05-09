@@ -34,7 +34,6 @@ class DownloaderWorker(Worker, ABC):
                  generator_queue: Queue[Message | None],
                  crawler_first_hit_flag: Event = None,
                  crawler_done_flag: Event = None,
-                 max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS,
                  download_limit_bytes: int = DEFAULT_MAX_CAPACITY):
         """
         Create a new downloader worker that downloads jars from the maven central file tree
@@ -47,19 +46,17 @@ class DownloaderWorker(Worker, ABC):
         :param download_limit_bytes: Limit the size of jars downloaded (Default: 5 GB)
         """
         super().__init__(master_terminate_flag, database, "downloader",
-                         thread_limit=max_concurrent_requests,
                          producer_queue=generator_queue)
         # crawler metadata
         self._crawler_first_hit_flag = crawler_first_hit_flag
         self._crawler_done_flag = crawler_done_flag
         # config
-        self._download_limit_bytes = download_limit_bytes
+        self._cache_manager = CacheManager(download_limit_bytes)
         # stats
         self._downloaded_jars = 0
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
-        self._cache_manager: CacheManager | None = None
 
     def _download_jar(self, message: Message) -> None:
         """
@@ -100,8 +97,7 @@ class DownloaderWorker(Worker, ABC):
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()
         finally:
-            # mark as done and release thread
-            self._release_thread_lock()
+            # mark as done
             self._consumer_queue.task_done()
 
     def _handle_message(self, message: Message | str) -> Future | None:
@@ -166,7 +162,6 @@ class DownloaderWorker(Worker, ABC):
         :param root_dir: Temp root directory working in
         """
         self._work_dir_path = tempfile.mkdtemp(prefix='jar_', dir=kwargs['root_dir'])
-        self._cache_manager = CacheManager(self._download_limit_bytes)
         # if using the crawler, wait until find a hit
         # todo - option to skip wait
         if self._crawler_first_hit_flag:

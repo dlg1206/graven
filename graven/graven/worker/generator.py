@@ -29,8 +29,7 @@ SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB of space per sbom
 class GeneratorWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft,
                  generator_queue: Queue[Message | None],
-                 scan_queue: Queue[Message | None],
-                 max_threads: int = DEFAULT_MAX_GENERATOR_THREADS):
+                 scan_queue: Queue[Message | None]):
         """
         Create a new generator worker that spawns threads to process jars using syft
 
@@ -39,20 +38,18 @@ class GeneratorWorker(Worker, ABC):
         :param syft: Syft interface to use for scanning
         :param generator_queue: Queue of jar details to generate SBOMs for
         :param scan_queue: Queue of SBOM to scan with grype
-        :param max_threads: Max number of concurrent requests allowed to be made at once
         """
         super().__init__(master_terminate_flag, database, "generator",
-                         thread_limit=max_threads,
                          consumer_queue=generator_queue,
                          producer_queue=scan_queue)
         # config
         self._syft = syft
+        self._cache_manager = CacheManager()
         # stats
         self._sboms_generated = 0
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
-        self._cache_manager: CacheManager | None = None
 
     def _generate_sbom(self, message: Message) -> None:
         """
@@ -85,7 +82,7 @@ class GeneratorWorker(Worker, ABC):
                 message.jar_file.close()
 
             # report success
-            self._cache_manager.update_space(message.syft_file.file_name, )
+            message.syft_file.open()
             self._sboms_generated += 1
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Generated syft sbom | {message.syft_file.file_name}")
@@ -105,8 +102,7 @@ class GeneratorWorker(Worker, ABC):
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             return
         finally:
-            # mark as done and release thread
-            self._release_thread_lock()
+            # mark as done
             self._consumer_queue.task_done()
 
         # update pipeline
@@ -139,7 +135,6 @@ class GeneratorWorker(Worker, ABC):
         :param root_dir: Temp root directory working in
         """
         self._work_dir_path = tempfile.mkdtemp(prefix='syft_', dir=kwargs['root_dir'])
-        self._cache_manager = CacheManager()
 
     def print_statistics_message(self) -> None:
         """
