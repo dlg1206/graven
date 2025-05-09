@@ -1,4 +1,5 @@
 import concurrent
+import os
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -26,17 +27,25 @@ Description: Factory for generating, coupling, and running graven workers
 @author Derek Garcia
 """
 
+DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS = 100
+DEFAULT_MAX_CPU_THREADS = os.cpu_count()
+
 
 class WorkerFactory:
-    def __init__(self):
+    def __init__(self,
+                 io_thread_count: int = DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS,
+                 cpu_thread_count: int = DEFAULT_MAX_CPU_THREADS):
         """
         Create new worker factory
+
+        :param io_thread_count: Number threads to create in io threadpool
+        :param cpu_thread_count: Number threads to create in cpu threadpool
         """
         # attempt to log in into the database
         self._database = GravenDatabase()
         self._interrupt_stop_flag = Event()
-        self._io_thread_count = 0  # to be updated as set
-        self._cpu_thread_count = 0
+        self._io_thread_count = io_thread_count
+        self._cpu_thread_count = cpu_thread_count
 
         # shared crawler objects
         self._crawler_first_hit_flag = Event()
@@ -53,37 +62,31 @@ class WorkerFactory:
         self._analyzer_first_hit_flag = Event()
         self._analyzer_done_flag = Event()
 
-    def create_crawler_worker(self, max_concurrent_requests: int, update_domain: bool,
-                              update_jar: bool) -> CrawlerWorker:
+    def create_crawler_worker(self, update_domain: bool, update_jar: bool) -> CrawlerWorker:
         """
         Create a new crawler worker
 
         :param update_domain: Update a domain if already seen
         :param update_jar: Update a jar if already seen
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
         :return: CrawlerWorker
         """
-        self._io_thread_count += max_concurrent_requests  # reserve threads
         return CrawlerWorker(self._interrupt_stop_flag, self._database,
                              self._crawler_first_hit_flag, self._crawler_done_flag, update_domain, update_jar)
 
-    def create_downloader_worker(self, max_concurrent_requests: int, download_limit: int) -> DownloaderWorker:
+    def create_downloader_worker(self, cache_size: int = None) -> DownloaderWorker:
         """
         Create a new downloader worker
 
-        :param max_concurrent_requests: Max number of concurrent requests allowed to be made at once
-        :param download_limit: Max number of jars to be downloaded at one time
+        :param cache_size: Size of jar cache to use
         :return: DownloaderWorker
         """
-        self._io_thread_count += max_concurrent_requests
         return DownloaderWorker(self._interrupt_stop_flag, self._database, self._generator_queue,
-                                self._crawler_first_hit_flag, self._crawler_done_flag, download_limit)
+                                self._crawler_first_hit_flag, self._crawler_done_flag, cache_size)
 
-    def create_generator_worker(self, max_threads: int, syft_path: str = None) -> GeneratorWorker:
+    def create_generator_worker(self, syft_path: str = None) -> GeneratorWorker:
         """
         Create a new downloader worker
 
-        :param max_threads: Max number of concurrent requests allowed to be made at once
         :param syft_path: Path to syft bin (Default: assume on path or in pwd)
         :return: GeneratorWorker
         """
@@ -92,15 +95,12 @@ class WorkerFactory:
             syft = Syft(syft_path)
         else:
             syft = Syft()
-        self._cpu_thread_count += max_threads
         return GeneratorWorker(self._interrupt_stop_flag, self._database, syft, self._generator_queue, self._scan_queue)
 
-    def create_scanner_worker(self, max_threads: int, grype_path: str = None,
-                              grype_db_source: str = None) -> ScannerWorker:
+    def create_scanner_worker(self, grype_path: str = None, grype_db_source: str = None) -> ScannerWorker:
         """
         Create a new scanner worker
 
-        :param max_threads: Max number of concurrent scans to be made at once
         :param grype_path: Path to grype bin (Default: assume on path or in pwd)
         :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
         :return: ScannerWorker
@@ -110,14 +110,12 @@ class WorkerFactory:
             grype = Grype(bin_path=grype_path, db_source_url=grype_db_source)
         else:
             grype = Grype(grype_db_source)
-        self._cpu_thread_count += max_threads
         return ScannerWorker(self._interrupt_stop_flag, self._database, grype, self._scan_queue, self._analyzer_queue)
 
-    def create_analyzer_worker(self, max_threads: int) -> AnalyzerWorker:
+    def create_analyzer_worker(self) -> AnalyzerWorker:
         """
         Create a new analyzer worker
 
-        :param max_threads: Max number of threads to parse anchore results
         :return: AnalyzerWorker
         """
         return AnalyzerWorker(self._interrupt_stop_flag, self._database, self._analyzer_queue,
@@ -147,9 +145,8 @@ class WorkerFactory:
 
         timer = Timer(True)
         # create threadpools to be sheared by workers
-        io_exe = ThreadPoolExecutor(
-            max_workers=self._io_thread_count)  # todo - limit for maven requests and benchmark if better to share or split
-        cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)  # todo - cpu
+        io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)
+        cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
             logger.debug_msg(f"Working Directory: {tmp_dir}")
@@ -190,6 +187,7 @@ class WorkerFactory:
                         f.result(timeout=0)
                 except Exception:
                     pass
+
         # shutdown thread pools
         io_exe.shutdown()
         cpu_exe.shutdown()

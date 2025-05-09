@@ -1,4 +1,3 @@
-import os
 import tempfile
 from abc import ABC
 from concurrent.futures import Future
@@ -20,8 +19,6 @@ Description: Use grype to scan jars to find CVEs
 
 @author Derek Garcia
 """
-# GeneratorWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_SCANNER_THREADS = int(os.cpu_count() / 2)
 
 GRYPE_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per grype report
 

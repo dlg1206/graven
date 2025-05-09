@@ -1,4 +1,3 @@
-import os
 import tempfile
 from abc import ABC
 from concurrent.futures import Future
@@ -21,8 +20,6 @@ Description: Use syft to generate SBOMs
 @author Derek Garcia
 """
 
-# ScannerWorker and AnalyzerWorker get the rest of the threads
-DEFAULT_MAX_GENERATOR_THREADS = int(os.cpu_count() / 2)
 SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sbom
 
 

@@ -1,8 +1,6 @@
 import json
-import os
 from abc import ABC
 from datetime import datetime, timezone
-from math import floor
 from queue import Queue
 from threading import Event
 
@@ -22,8 +20,6 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 
 @author Derek Garcia
 """
-
-DEFAULT_MAX_ANALYZER_THREADS = int(floor(os.cpu_count() / 3))
 
 
 class AnalyzerWorker(Worker, ABC):

@@ -25,7 +25,6 @@ Description: Download jars into temp directories to be scanned
 """
 
 RETRY_SLEEP = 10
-DEFAULT_MAX_CONCURRENT_DOWNLOAD_REQUESTS = 20
 
 
 class DownloaderWorker(Worker, ABC):
