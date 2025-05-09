@@ -229,7 +229,7 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.CVE, {'cve_id': cve_id}, {'run_id': run_id, **kwargs})
 
-    def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: str) -> None:
+    def upsert_cwe(self, run_id: int, cwe_id: str, **kwargs: Any) -> None:
         """
         Upsert cwe to the database
 

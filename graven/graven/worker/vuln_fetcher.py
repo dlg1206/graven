@@ -136,10 +136,13 @@ class VulnFetcherWorker(Worker, ABC):
         cve_id = message
         try:
             nvd_result = self._fetch_cve(cve_id)
-            self._database.upsert_cve(self._run_id, cve_id, cvss=nvd_result.cvss,
+            self._database.upsert_cve(self._run_id, cve_id,
+                                      cvss=nvd_result.cvss,
                                       publish_date=nvd_result.publish_date,
-                                      description=nvd_result.description, source=nvd_result.source,
-                                      last_queried=nvd_result.last_queried)
+                                      description=nvd_result.description,
+                                      source=nvd_result.source,
+                                      last_queried=nvd_result.last_queried,
+                                      status_code=0)
             logger.info(f"Added details for '{cve_id}'")
             # add cwes
             for cwe_id in nvd_result.cwes:
@@ -147,8 +150,12 @@ class VulnFetcherWorker(Worker, ABC):
                 if not self._database.has_seen_cwe(cwe_id):
                     try:
                         mitre_result = _fetch_cwe(cwe_id)
-                        self._database.upsert_cwe(self._run_id, cwe_id, name=mitre_result.name,
-                                                  description=mitre_result.description, source=mitre_result.source)
+                        self._database.upsert_cwe(self._run_id, cwe_id,
+                                                  name=mitre_result.name,
+                                                  description=mitre_result.description,
+                                                  source=mitre_result.source,
+                                                  last_queried=datetime.now(timezone.utc),
+                                                  status_code=0)
                         logger.info(f"Added details for '{cwe_id}'")
                     except (RequestException, Exception) as e:
                         # handle failed to get cwe
@@ -156,6 +163,8 @@ class VulnFetcherWorker(Worker, ABC):
                         if hasattr(e, 'response'):
                             details.update({'status_code': e.response.status_code})
                         self._database.log_error(self._run_id, Stage.VULN, e, details=details)
+                        self._database.upsert_cwe(self._run_id, cwe_id,
+                                                  last_queried=datetime.now(timezone.utc), status_code=1)
                 # associate cve to cwe
                 self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
 
@@ -168,6 +177,7 @@ class VulnFetcherWorker(Worker, ABC):
             if isinstance(e, CVENotFoundError):
                 details = {'cve_id': e.cve_id}
             self._database.log_error(self._run_id, Stage.VULN, e, details=details)
+            self._database.upsert_cve(self._run_id, cve_id, last_queried=datetime.now(timezone.utc), status_code=1)
 
         finally:
             self._consumer_queue.task_done()  # mark task as done
