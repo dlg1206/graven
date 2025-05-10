@@ -2,6 +2,7 @@ from argparse import Namespace
 
 from dotenv import load_dotenv
 
+from db.graven_database import GravenDatabase
 from shared.cache_manager import DEFAULT_MAX_CAPACITY, mb_to_bytes
 from shared.cli_parser import create_parser, parse_input_args_for_seed_urls
 from shared.logger import Level, logger
@@ -21,6 +22,13 @@ def _execute(args: Namespace) -> None:
 
     :param args: args to get command details from
     """
+    # export sboms
+    if args.command == 'export':
+        db = GravenDatabase()
+        db.export_sboms(args.directory, args.compression_method)
+        exit(0)
+
+    # else run graven
     # init pipeline
     pipline_builder = PipelineBuilder()
     if hasattr(args, 'max_concurrent_maven_requests'):
