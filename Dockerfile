@@ -34,15 +34,21 @@ ENV SYFT_DEFAULT_CATALOGERS=java-archive-cataloger
 RUN adduser -D graven
 WORKDIR $HOME
 RUN mkdir -p .cache/grype && chown -R graven:graven /home/graven
+
+# install graven dependencies
+USER graven
+COPY --chown=graven:graven graven/requirements.txt requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt
+# remove pip
+USER root
+RUN rm requirements.txt && pip uninstall pip -y
+USER graven
+# copy code
+COPY --chown=graven:graven graven/graven/ graven/
+
+# copy anchore tools
 COPY --from=syft_download /usr/local/bin/syft /usr/local/bin/syft
 COPY --from=grype_download /usr/local/bin/grype /usr/local/bin/grype
-
-# install graven
-COPY --chown=graven:graven requirements.txt requirements.txt
-COPY --chown=graven:graven graven/ graven/
-
-USER graven
-RUN pip install --user --no-cache-dir -r requirements.txt
 
 # lauch graven
 ENTRYPOINT ["python3", "graven"]

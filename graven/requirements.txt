@@ -5,3 +5,4 @@ tqdm==4.67.1
 zstandard==0.23.0
 beautifulsoup4==4.13.4
 SQLAlchemy==2.0.40
+mysql-connector-python==9.3.0

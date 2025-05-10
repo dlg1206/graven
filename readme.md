@@ -68,7 +68,7 @@ For external connections, the database will be hosted at `localhost:3306`
 1. Build the graven image
 
 ```bash
-docker build -t graven:2.2.0 graven
+docker build -t graven:2.2.0 .
 ```
 
 2. Run the container attached to the database network

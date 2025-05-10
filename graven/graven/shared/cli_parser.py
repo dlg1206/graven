@@ -209,7 +209,6 @@ def create_parser() -> ArgumentParser:
                                help="Compression mode to export data to",
                                required=True)
 
-
     return parser
 
 

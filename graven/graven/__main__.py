@@ -93,10 +93,10 @@ def main() -> None:
         # else update if option
         logger.set_log_level(args.log_level)
 
-    try:
-        _execute(args)
-    except Exception as e:
-        logger.fatal(e)
+    # try:
+    _execute(args)
+    # except Exception as e:
+    #     logger.fatal(e)
 
 
 if __name__ == "__main__":

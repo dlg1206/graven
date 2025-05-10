@@ -83,10 +83,10 @@ class GravenDatabase(MySQLDatabase):
 
         :param pool_size: Size of the database pool (max is 32)
         """
-        try:
-            super().__init__(pool_size)
-        except Exception as e:
-            logger.fatal(e)
+        # try:
+        super().__init__(pool_size)
+        # except Exception as e:
+        #     logger.fatal(e)
         logger.info("Connected to the database")
 
     def has_seen_jar_url(self, url: str) -> bool:
@@ -412,7 +412,7 @@ class GravenDatabase(MySQLDatabase):
                     sbom_json = json.loads(decompressed)
 
                     # format JSON and prepare in-memory file
-                    json_bytes = json.dumps(sbom_json, indent=2).encode('utf-8')    # todo - add conversion support?
+                    json_bytes = json.dumps(sbom_json, indent=2).encode('utf-8')  # todo - add conversion support?
                     json_io = io.BytesIO(json_bytes)
 
                     if compression_method == 'zip':
