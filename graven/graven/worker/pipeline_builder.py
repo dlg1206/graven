@@ -168,7 +168,7 @@ class PipelineBuilder:
             syft = Syft(syft_path)
         else:
             syft = Syft()
-        self._grype_version = syft.get_version()
+        self._syft_version = syft.get_version()
         self._generator = GeneratorWorker(self._interrupt_stop_flag, self._database, syft, cache_size)
         return self
 
