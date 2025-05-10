@@ -66,6 +66,11 @@ def _add_process_options(parser: ArgumentParser) -> None:
                                   help=f"Limit of the number of jars to be saved at one time. "
                                        f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
+    downloader_group.add_argument("--jar-limit",
+                                  metavar="<max jar count>",
+                                  type=int,
+                                  help="Limit the number of jars downloaded at once")
+
     generator_group = parser.add_argument_group("Generator Options")
     generator_group.add_argument("--syft-path",
                                  metavar="<absolute path to syft binary>",

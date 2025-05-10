@@ -210,11 +210,6 @@ class CrawlerWorker(Worker, ABC):
         logger.info(
             f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
 
-    """
-                     crawler_first_hit_flag: Event | None,
-                 crawler_done_flag: Event | None = None,
-    """
-
     def set_first_hit_flag(self, flag: Event) -> None:
         """
         Set the first hit flag

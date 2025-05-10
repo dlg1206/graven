@@ -35,8 +35,10 @@ def _execute(args: Namespace) -> None:
     # init process
     if args.command == 'run' or args.command == 'process':
         download_cache = mb_to_bytes(args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
+        jar_limit = args.jar_limit if hasattr(args, 'jar_limit') else None
         grype_cache = mb_to_bytes(args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
-        pipline_builder.set_process_workers(download_cache, grype_cache, args.grype_path, args.grype_db_source)
+        pipline_builder.set_process_workers(download_cache, grype_cache, args.grype_path, args.grype_db_source,
+                                            jar_limit)
 
         # todo - add cli option to skip this
         syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY

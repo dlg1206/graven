@@ -89,6 +89,7 @@ class PipelineBuilder:
         # download to gen
         self._downloader.set_producer_queue(generator_queue)
         self._generator.set_consumer_queue(generator_queue)
+        # self._generator.set_consumer_queue(Queue())
         # gen to scan
         self._generator.set_producer_queue(scan_queue)
         self._scanner.set_consumer_queue(scan_queue)
@@ -121,16 +122,17 @@ class PipelineBuilder:
         self._crawler = CrawlerWorker(self._interrupt_stop_flag, self._database, seed_urls, update_domain, update_jar)
         return self
 
-    def set_process_workers(self, download_cache_size: int,
-                            grype_cache_size: int, grype_path: str, grype_db_source: str) -> 'PipelineBuilder':
+    def set_process_workers(self, download_cache_size: int, grype_cache_size: int,
+                            grype_path: str, grype_db_source: str, jar_limit: int = None) -> 'PipelineBuilder':
         """
         Create all the workers required for the process operation
         By default, syft SBOMs are not generated
 
         :param download_cache_size: Size of jar cache to use in bytes
         :param grype_cache_size: Size of grype cache to use in bytes
-        :param grype_path: Path to grype bin (Default: assume on path or in pwd)
+        :param grype_path: Path to grype bin
         :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
+        :param jar_limit: Optional limit of jars to download at once
         :return: builder
         """
         # init grype
@@ -141,7 +143,7 @@ class PipelineBuilder:
         self._grype_version = grype.get_version()
         self._grype_db_source = grype_db_source
         # set workers
-        self._downloader = DownloaderWorker(self._interrupt_stop_flag, self._database, download_cache_size)
+        self._downloader = DownloaderWorker(self._interrupt_stop_flag, self._database, download_cache_size, jar_limit)
         self._scanner = ScannerWorker(self._interrupt_stop_flag, self._database, grype, grype_cache_size)
         self._analyzer = AnalyzerWorker(self._interrupt_stop_flag, self._database)
 

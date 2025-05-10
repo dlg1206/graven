@@ -1,4 +1,5 @@
 import os
+from threading import Semaphore
 
 from shared.cache_manager import CacheManager
 from shared.logger import logger
@@ -48,6 +49,7 @@ class File:
         """
         Delete the file
         """
+        self._open = False
         # don't attempt to close if not open
         if not os.path.exists(self._file_path):
             return
@@ -57,7 +59,6 @@ class File:
             self._cache.free_space(self._file_name)
         except Exception as e:
             logger.error_exp(e)
-        self._open = False
 
     @property
     def file_name(self) -> str:
@@ -82,15 +83,26 @@ class File:
 
 
 class JarFile(File):
-    def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, jar_limit_semaphore: Semaphore = None):
         """
         Create a new jar file object with limit lock
 
         :param cache: Cache where file is stored
         :param work_dir: Working directory to save the file in
         :param file_name: Name of the file
+        :param jar_limit_semaphore: Optional limit to number of jars downloaded at one time
         """
         super().__init__(cache, work_dir, file_name, ".jar")
+        self._jar_limit_semaphore = jar_limit_semaphore
+
+    def close(self) -> None:
+        """
+        Delete the file and release semaphore if using it
+        """
+        super().close()
+        if self._jar_limit_semaphore:
+            self._jar_limit_semaphore.release()
+            self._jar_limit_semaphore = None  # ensure cannot release more than once
 
 
 class SyftFile(File):
