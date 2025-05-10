@@ -13,8 +13,7 @@ Graven 2.0 introduces three additional workers into the pipeline, while existing
 
 - Scanner: Use `grype` to scan the generated SBOMs for CVEs
 
-- Analyzer: Parse the `syft` and `grype` reports and save vulnerability, artifact, and dependency information into the
-  database
+- Analyzer: Parse the `syft` and `grype` reports and save vulnerability information into the database
 
 Adjacent to the main pipeline, there is an additional NVD & MITRE module that add additional vulnerability information
 in realtime.

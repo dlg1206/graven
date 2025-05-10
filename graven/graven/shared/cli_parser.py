@@ -195,6 +195,21 @@ def create_parser() -> ArgumentParser:
     subparsers.add_parser("update-vuln", help=vuln_help,
                           description=f"{vuln_help}. Will use 'NVD_API_KEY' env variable if available")
 
+    # export
+    export_help = "Export SBOMs in the database to file"
+    export_parser = subparsers.add_parser("export", help=export_help, description=export_help)
+    export_parser.add_argument("-d", "--directory",
+                               type=str,
+                               help="Directory to save dump to",
+                               required=True)
+
+    export_parser.add_argument("-c", "--compression-method",
+                               type=str,
+                               choices=['zip', 'tar.gz'],
+                               help="Compression mode to export data to",
+                               required=True)
+
+
     return parser
 
 

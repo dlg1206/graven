@@ -1,8 +1,13 @@
+import io
 import json
+import os
+import tarfile
+import zipfile
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Literal
 
+import zstandard as zstd
 from sqlalchemy import text
 
 from db.database import MySQLDatabase, TableEnum, DEFAULT_POOL_SIZE
@@ -381,3 +386,42 @@ class GravenDatabase(MySQLDatabase):
         if details:
             inserts.update({'details': json.dumps(details)})
         self._insert(Table.ERROR_LOG, inserts)
+
+    def export_sboms(self, export_directory: str, compression_method: Literal['zip', 'tar.gz']) -> None:
+        """
+        Export SBOMs stored in database to file
+
+        :param export_directory: Path to directory to save SBOMs to
+        :param compression_method: Method to bundle SBOMs for export (zip or tar.gz)
+        """
+        os.makedirs(export_directory, exist_ok=True)
+        dctx = zstd.ZstdDecompressor()
+        sboms = self._select(Table.SBOM, ['jar_id', 'sbom'])
+        out_file_path = f"{export_directory}{os.sep}graven_sbom_dump.{compression_method}"
+        # determine write type based on extension
+        if compression_method == 'zip':
+            open_method = zipfile.ZipFile(out_file_path, 'w', compression=zipfile.ZIP_DEFLATED)
+        else:
+            open_method = tarfile.open(out_file_path, 'w:gz')
+        # decompress and write to file
+        with open_method as export:
+            for jar_id, sbom_bytes in logger.get_data_queue(sboms, "Exporting SBOMs", "SBOM"):
+                try:
+                    # decompress
+                    decompressed = dctx.decompress(sbom_bytes)
+                    sbom_json = json.loads(decompressed)
+
+                    # format JSON and prepare in-memory file
+                    json_bytes = json.dumps(sbom_json, indent=2).encode('utf-8')    # todo - add conversion support?
+                    json_io = io.BytesIO(json_bytes)
+
+                    if compression_method == 'zip':
+                        export.writestr(f"{jar_id}.json", json_bytes)
+                    else:
+                        # create tar entry
+                        tarinfo = tarfile.TarInfo(name=f"{jar_id}.json")
+                        tarinfo.size = len(json_bytes)
+                        export.addfile(tarinfo, fileobj=json_io)
+                    logger.debug_msg(f"Exported {jar_id}")
+                except Exception as e:
+                    logger.error_exp(e, f"Failed to export SBOM for {jar_id}")
