@@ -26,7 +26,6 @@ Description: Builder for generating, coupling, and running graven workers
 @author Derek Garcia
 """
 
-DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS = 100
 DEFAULT_MAX_CPU_THREADS = os.cpu_count()
 
 
@@ -38,7 +37,8 @@ class PipelineBuilder:
         # attempt to log in into the database
         self._database = GravenDatabase()
         self._interrupt_stop_flag = Event()
-        self._io_thread_count = 0
+        self._crawler_thread_count = 0
+        self._downloader_thread_count = 0
         self._cpu_thread_count = 0
 
         # metadata
@@ -93,13 +93,21 @@ class PipelineBuilder:
         self._generator.set_producer_queue(scan_queue)
         self._scanner.set_consumer_queue(scan_queue)
 
-    def set_io_thread_limit(self, limit: int) -> None:
+    def set_crawler_thread_limit(self, limit: int) -> None:
         """
-        Set IO thread count limit
+        Set crawler thread count limit
         
         :param limit: thread limit
         """
-        self._io_thread_count = limit
+        self._crawler_thread_count = limit
+
+    def set_downloader_thread_limit(self, limit: int) -> None:
+        """
+        Set downloader thread count limit
+
+        :param limit: thread limit
+        """
+        self._downloader_thread_count = limit
 
     def set_cpu_thread_limit(self, limit: int) -> None:
         """
@@ -205,14 +213,9 @@ class PipelineBuilder:
         run_id = self._database.log_run_start(self._syft_version, self._grype_version, self._grype_db_source)
 
         # create threadpools to be sheared by workers
-        if self._crawler or self._downloader:
-            io_exe = ThreadPoolExecutor(max_workers=self._io_thread_count)
-        else:
-            io_exe = None
-        if self._scanner or self._generator:
-            cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count)
-        else:
-            cpu_exe = None
+        crawl_exe = ThreadPoolExecutor(max_workers=self._crawler_thread_count) if self._crawler else None
+        downloader_exe = ThreadPoolExecutor(max_workers=self._downloader_thread_count) if self._downloader else None
+        cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count) if self._scanner or self._generator else None
 
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
@@ -220,9 +223,9 @@ class PipelineBuilder:
             # create list of workers to run
             tasks = []
             if self._crawler:
-                tasks.append(lambda: _graceful_start(self._crawler.start, run_id, io_exe))
+                tasks.append(lambda: _graceful_start(self._crawler.start, run_id, crawl_exe))
             if self._downloader:
-                tasks.append(lambda: _graceful_start(self._downloader.start, run_id, io_exe, root_dir=tmp_dir))
+                tasks.append(lambda: _graceful_start(self._downloader.start, run_id, downloader_exe, root_dir=tmp_dir))
             if self._generator:
                 tasks.append(lambda: _graceful_start(self._generator.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._scanner:
@@ -262,8 +265,10 @@ class PipelineBuilder:
                     pass
 
         # shutdown thread pools
-        if io_exe:
-            io_exe.shutdown()
+        if crawl_exe:
+            crawl_exe.shutdown()
+        if downloader_exe:
+            downloader_exe.shutdown()
         if cpu_exe:
             cpu_exe.shutdown()
         # print task durations

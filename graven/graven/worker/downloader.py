@@ -1,3 +1,4 @@
+import os
 import tempfile
 import time
 from abc import ABC
@@ -25,6 +26,7 @@ Description: Download jars into temp directories to be scanned
 
 RETRY_SLEEP = 10
 JAR_LIMIT_TIMEOUT = 30
+DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()  # limit to match cpus since binaries should be capped at thread count
 
 
 class DownloaderWorker(Worker, ABC):

@@ -24,6 +24,8 @@ Description: Crawl maven central repo for urls
 MAVEN_HTML_REGEX = re.compile(
     "href=\"(?!\\.\\.)(?:(.*?/)|(.*?jar))\"(?:.*</a>\\s*(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})|)")
 
+DEFAULT_MAX_CRAWLER_REQUESTS = 100
+
 
 class CrawlerWorker(Worker, ABC):
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,

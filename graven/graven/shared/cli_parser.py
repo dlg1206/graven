@@ -6,7 +6,9 @@ from anchore.grype import GRYPE_BIN
 from anchore.syft import SYFT_BIN
 from shared.cache_manager import bytes_to_mb, DEFAULT_MAX_CAPACITY
 from shared.logger import Level
-from worker.pipeline_builder import DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS, DEFAULT_MAX_CPU_THREADS
+from worker.crawler import DEFAULT_MAX_CRAWLER_REQUESTS
+from worker.downloader import DEFAULT_MAX_DOWNLOADER_REQUESTS
+from worker.pipeline_builder import DEFAULT_MAX_CPU_THREADS
 
 """
 File: cli_parser.py
@@ -40,6 +42,13 @@ def _add_crawl_options(parser: ArgumentParser) -> None:
     Add crawler options to the given parser
     """
     crawler_group = parser.add_argument_group("Crawler Options")
+    crawler_group.add_argument("--max-concurrent-crawl-requests",
+                               metavar="<number of requests>",
+                               type=int,
+                               help=f"Max number of requests crawler can make at once "
+                                    f"(Default: {DEFAULT_MAX_CRAWLER_REQUESTS})",
+                               default=DEFAULT_MAX_CRAWLER_REQUESTS)
+
     crawler_group.add_argument("--update-domain",
                                action="store_true",
                                help="Update domains that have already been crawled. "
@@ -60,6 +69,12 @@ def _add_process_options(parser: ArgumentParser) -> None:
     Add process options to the given parser
     """
     downloader_group = parser.add_argument_group("Downloader Options")
+    downloader_group.add_argument("--max-concurrent-download-requests",
+                                  metavar="<number of requests>",
+                                  type=int,
+                                  help=f"Max number of downloads downloader can make at once "
+                                       f"(Default: {DEFAULT_MAX_DOWNLOADER_REQUESTS})",
+                                  default=DEFAULT_MAX_DOWNLOADER_REQUESTS)
     downloader_group.add_argument("--download-cache-size",
                                   metavar="<cache size in MB>",
                                   type=float,
@@ -106,27 +121,17 @@ def _add_process_options(parser: ArgumentParser) -> None:
 
 
 def _add_misc_options(parser: ArgumentParser,
-                      add_request_limit: bool = True,
                       add_cpu_limit: bool = True,
                       add_disable_vuln: bool = True,
                       add_enable_vuln: bool = False) -> None:
     """
     Add misc options to the given parser
 
-    :param add_request_limit: Add the request limit arg (Default: True)
     :param add_cpu_limit: Add max cpu thread limit arg (Default: True)
     :param add_disable_vuln: Add disable vuln update arg (Default: True)
     :param add_enable_vuln: Add enable vuln update arg (Default: False)
     """
     misc_group = parser.add_argument_group("Miscellaneous Options")
-
-    if add_request_limit:
-        misc_group.add_argument("--max-concurrent-maven-requests",
-                                metavar="<number of requests>",
-                                type=int,
-                                help=f"Max number of requests can make at once to Maven Central. "
-                                     f"(Default: {DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS})",
-                                default=DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS)
 
     if add_cpu_limit:
         misc_group.add_argument("--max-cpu-threads",
@@ -140,6 +145,7 @@ def _add_misc_options(parser: ArgumentParser,
         misc_group.add_argument("--disable-update-vuln",
                                 action='store_true',
                                 help="Disable real-time queries for CVE and CWE details")
+
     if add_enable_vuln:
         misc_group.add_argument("--enable-update-vuln",
                                 action='store_true',

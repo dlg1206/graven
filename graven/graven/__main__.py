@@ -31,8 +31,10 @@ def _execute(args: Namespace) -> None:
     # else run graven
     # init pipeline
     pipline_builder = PipelineBuilder()
-    if hasattr(args, 'max_concurrent_maven_requests'):
-        pipline_builder.set_io_thread_limit(args.max_concurrent_maven_requests)
+    if hasattr(args, 'max_concurrent_crawl_requests'):
+        pipline_builder.set_crawler_thread_limit(args.max_concurrent_crawl_requests)
+    if hasattr(args, 'max_concurrent_download_requests'):
+        pipline_builder.set_downloader_thread_limit(args.max_concurrent_download_requests)
     if hasattr(args, 'max_cpu_threads'):
         pipline_builder.set_cpu_thread_limit(args.max_cpu_threads)
 
@@ -93,10 +95,10 @@ def main() -> None:
         # else update if option
         logger.set_log_level(args.log_level)
 
-    # try:
-    _execute(args)
-    # except Exception as e:
-    #     logger.fatal(e)
+    try:
+        _execute(args)
+    except Exception as e:
+        logger.fatal(e)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ BYTES_PER_GB = 1024 ** 3
 
 DEFAULT_MAX_CAPACITY = 5 * BYTES_PER_GB  # 5 gb
 
-RESERVE_BACKOFF_TIMEOUT = 5    # backoff time to allow for cache to be cleared
+RESERVE_BACKOFF_TIMEOUT = 5  # backoff time to allow for cache to be cleared
 
 
 class ExceedsCacheLimitError(MemoryError):
