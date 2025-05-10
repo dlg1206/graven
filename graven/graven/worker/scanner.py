@@ -1,4 +1,5 @@
 import tempfile
+import time
 from abc import ABC
 from concurrent.futures import Future
 from threading import Event
@@ -7,7 +8,7 @@ from typing import Any
 from anchore.grype import GrypeScanFailure, Grype
 from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
-from shared.cache_manager import CacheManager, BYTES_PER_MB
+from shared.cache_manager import CacheManager, BYTES_PER_MB, RESERVE_BACKOFF_TIMEOUT
 from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
@@ -116,6 +117,7 @@ class ScannerWorker(Worker, ABC):
             logger.warn("No space left in cache, trying later. . .")
             message.grype_file.close()
             self._consumer_queue.put(message)
+            time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
         # else process
         return self._thread_pool_executor.submit(self._scan_with_grype, message)

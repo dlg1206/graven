@@ -10,7 +10,7 @@ from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
-from shared.cache_manager import CacheManager, DEFAULT_MAX_CAPACITY, ExceedsCacheLimitError
+from shared.cache_manager import CacheManager, DEFAULT_MAX_CAPACITY, ExceedsCacheLimitError, RESERVE_BACKOFF_TIMEOUT
 from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
@@ -114,6 +114,7 @@ class DownloaderWorker(Worker, ABC):
             if not self._cache_manager.reserve_space(message.jar_id, content_length):
                 logger.warn("No space left in cache, trying later. . .")
                 self._database.shelf_message(message.jar_id)
+                time.sleep(RESERVE_BACKOFF_TIMEOUT)
                 return None
             # space reserved, kickoff job
             return self._thread_pool_executor.submit(self._download_jar, message)
