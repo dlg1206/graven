@@ -82,6 +82,9 @@ def _add_process_options(parser: ArgumentParser) -> None:
                                  type=float,
                                  help=f"Limit of the number of grype files to be saved at one time. "
                                       f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
+    generator_group.add_argument("--disable-syft",
+                                 action="store_true",
+                                 help="Disable SBOM generation and scan jars directly")
 
     scanner_group = parser.add_argument_group("Scanner Options")
     scanner_group.add_argument("--grype-path",
@@ -167,7 +170,7 @@ def create_parser() -> ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # scan
+    # run
     run_help = "Run the entire graven pipeline"
     run_parser = subparsers.add_parser("run", help=run_help, description=run_help)
     _add_input_options(run_parser)

@@ -63,7 +63,7 @@ class ScannerWorker(Worker, ABC):
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
-            if message.syft_file.is_open:
+            if message.syft_file and message.syft_file.is_open:
                 file_path = message.syft_file.file_path
             else:
                 file_path = message.jar_file.file_path
@@ -75,7 +75,7 @@ class ScannerWorker(Worker, ABC):
                         f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
 
             # update counts
-            if message.syft_file.is_open:
+            if message.syft_file and message.syft_file.is_open:
                 self._sboms_scanned += 1
             else:
                 self._jars_scanned += 1

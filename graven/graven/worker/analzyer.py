@@ -96,8 +96,10 @@ class AnalyzerWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
+            if message.syft_file:
+                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
+            if message.grype_file:
+                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
             self._handle_shutdown(message)
             return
         # process files
@@ -105,11 +107,14 @@ class AnalyzerWorker(Worker, ABC):
         try:
             timer = Timer(True)
             # process and save sbom
-            if message.syft_file.is_open:
-                self._compress_and_save_sbom(message.jar_id, message.syft_file)
-                message.syft_file.close()
+            if message.syft_file:
+                if message.syft_file.is_open:
+                    self._compress_and_save_sbom(message.jar_id, message.syft_file)
+                    message.syft_file.close()
+                else:
+                    logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
             else:
-                logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
+                logger.debug_msg(f"syft file dne, skipping. . .")
             # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)

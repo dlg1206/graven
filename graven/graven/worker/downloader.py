@@ -82,7 +82,7 @@ class DownloaderWorker(Worker, ABC):
             self._cache_manager.update_space(message.jar_id, message.jar_file.get_file_size())
             self._downloaded_jars += 1
             # send downstream
-            self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_GEN)
+            self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_ANCHORE)
             self._producer_queue.put(message)
         except (RequestException, Exception) as e:
             logger.error_exp(e)

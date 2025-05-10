@@ -28,25 +28,43 @@ def _execute(args: Namespace) -> None:
     if hasattr(args, 'max_cpu_threads'):
         pipline_builder.set_cpu_thread_limit(args.max_cpu_threads)
 
-    # init crawl
-    if args.command == 'run' or args.command == 'crawl':
-        seed_urls = parse_input_args_for_seed_urls(args)
-        pipline_builder.set_crawler_worker(seed_urls, args.update or args.update_domain, args.update or args.update_jar)
-    # init process
-    if args.command == 'run' or args.command == 'process':
-        download_cache = mb_to_bytes(args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
-        jar_limit = args.jar_limit if hasattr(args, 'jar_limit') else None
-        grype_cache = mb_to_bytes(args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
-        pipline_builder.set_process_workers(download_cache, grype_cache, args.grype_path, args.grype_db_source,
-                                            jar_limit)
+    # determine command
+    is_run = args.command == 'run'
+    is_crawl = args.command == 'crawl'
+    is_process = args.command == 'process'
+    is_update_vuln = args.command == 'update-vuln'
 
-        # todo - add cli option to skip this
-        syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
-        pipline_builder.set_generator_worker(syft_cache, args.syft_path)
-    # init vuln fetch (add to run if not disabled) or if enabled
-    if args.command == 'run' and not args.disable_update_vuln or args.command == 'update-vuln':
-        pipline_builder.set_vuln_worker()
-    elif hasattr(args, 'enable_update_vuln') and args.enable_update_vuln:
+    # Init crawl
+    if is_run or is_crawl:
+        seed_urls = parse_input_args_for_seed_urls(args)
+        update_domain = args.update or args.update_domain
+        update_jar = args.update or args.update_jar
+        pipline_builder.set_crawler_worker(seed_urls, update_domain, update_jar)
+
+    # Init process
+    if is_run or is_process:
+        download_cache = mb_to_bytes(args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
+        grype_cache = mb_to_bytes(args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
+        jar_limit = getattr(args, 'jar_limit', None)
+
+        pipline_builder.set_process_workers(
+            download_cache,
+            grype_cache,
+            args.grype_path,
+            args.grype_db_source,
+            jar_limit
+        )
+
+        # Add syft worker if not disabled
+        if not getattr(args, 'disable_syft', False):
+            syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
+            pipline_builder.set_generator_worker(syft_cache, args.syft_path)
+
+    # Init vuln fetch worker
+    vuln_enabled = (is_run and not getattr(args, 'disable_update_vuln', False)) or getattr(args, 'enable_update_vuln',
+                                                                                           False) or is_update_vuln
+
+    if vuln_enabled:
         pipline_builder.set_vuln_worker()
 
     # start job
