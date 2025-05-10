@@ -100,7 +100,13 @@ class MySQLDatabase:
         sql = f"SELECT {columns_names} FROM {table.value}"
         # add where clauses if given
         if where_equals:
-            where_clause = ' AND '.join([f"{clause} = :{clause}" for clause in where_equals.keys()])
+            clauses = []
+            for clause, v in where_equals.items():
+                if v is not None:
+                    clauses.append(f"{clause} = :{clause}")
+                else:
+                    clauses.append(f"{clause} IS NULL")
+            where_clause = ' AND '.join(clauses)
             sql += f" WHERE {where_clause}"
 
         # connect is simple

@@ -23,25 +23,19 @@ QUEUE_POLL_TIMEOUT = 1
 
 class Worker(ABC):
 
-    def __init__(self, master_terminate_flag: Event,
-                 database: GravenDatabase,
-                 name: str,
-                 consumer_queue: Queue[Any | None] = None,
-                 producer_queue: Queue[Any | None] = None):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, name: str):
         """
         A generic worker interface that handles polling and pushing messages between queues
 
         :param master_terminate_flag: Interrupt flag to signal shutdown
         :param database: Graven Database interface to use
         :param name: Name of worker
-        :param consumer_queue: Optional consumer queue to poll data from
-        :param producer_queue: Optional producer queue to submit data to
         """
         self._master_terminate_flag = master_terminate_flag
         self._database = database
         self._name = name
-        self._consumer_queue = consumer_queue
-        self._producer_queue = producer_queue
+        self._consumer_queue = None
+        self._producer_queue = None
         self._timer = Timer()
         # to be added at runtime
         self._run_id = None
@@ -108,6 +102,22 @@ class Worker(ABC):
         Optional post start conditions to handle
         """
         pass
+
+    def set_consumer_queue(self, consumer_queue: Queue[Any | None]) -> None:
+        """
+        Set consumer queue
+
+        :param consumer_queue: Optional consumer queue to poll data from
+        """
+        self._consumer_queue = consumer_queue
+
+    def set_producer_queue(self, producer_queue: Queue[Any | None]) -> None:
+        """
+        Set producer queue
+
+        :param producer_queue: Optional producer queue to submit data to
+        """
+        self._producer_queue = producer_queue
 
     def start(self, run_id: int, thread_pool_executor: ThreadPoolExecutor = None, **kwargs: Any) -> None:
         """

@@ -1,7 +1,6 @@
 import tempfile
 from abc import ABC
 from concurrent.futures import Future
-from queue import Queue
 from threading import Event
 from typing import Any
 
@@ -10,6 +9,7 @@ from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
 from shared.cache_manager import CacheManager, BYTES_PER_MB
 from shared.logger import logger
+from shared.timer import Timer
 from worker.worker import Worker
 
 """
@@ -24,9 +24,7 @@ GRYPE_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per g
 
 
 class ScannerWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype, cache_size: int,
-                 scan_queue: Queue[Message | None],
-                 analyzer_queue: Queue[Message | None]):
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype, cache_size: int):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 
@@ -34,18 +32,15 @@ class ScannerWorker(Worker, ABC):
         :param database: The database to save grype results and store any error messages in
         :param grype: Grype interface to use for scanning
         :param cache_size: Size of syft cache to use in bytes
-        :param scan_queue: Queue of scan messages to scan
-        :param analyzer_queue: Queue of results to eventually write to the database
         """
-        super().__init__(master_terminate_flag, database, "scanner",
-                         consumer_queue=scan_queue,
-                         producer_queue=analyzer_queue)
+        super().__init__(master_terminate_flag, database, "scanner")
         # config
         self._grype = grype
         self._cache_manager = CacheManager(cache_size)
         # stats
         self._sboms_scanned = 0
         self._jars_scanned = 0
+        self._seen_file = False
         # set at runtime
         self._run_id = None
         self._work_dir_path = None
@@ -64,10 +59,11 @@ class ScannerWorker(Worker, ABC):
         # scan
         self._database.update_jar_status(message.jar_id, Stage.SCANNER)
         try:
+            timer = Timer(True)
             logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
                              f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
-            if message.syft_file.is_open:
+            if message.syft_file and message.syft_file.is_open:
                 file_path = message.syft_file.file_path
             else:
                 file_path = message.jar_file.file_path
@@ -75,11 +71,11 @@ class ScannerWorker(Worker, ABC):
             self._grype.scan(file_path, message.grype_file.file_path)
             # report success
             message.grype_file.open()
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Generated grype report | {message.grype_file.file_name}")
+            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
+                        f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
 
             # update counts
-            if message.syft_file.is_open:
+            if message.syft_file and message.syft_file.is_open:
                 self._sboms_scanned += 1
             else:
                 self._jars_scanned += 1
@@ -108,7 +104,12 @@ class ScannerWorker(Worker, ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
-        # init file
+        # restart timer on first file
+        if not self._seen_file:
+            self._seen_file = True
+            self._timer.start()
+
+            # init file
         message.init_grype_file(self._cache_manager, self._work_dir_path)
         # try to reserve space, requeue if no space
         if not self._cache_manager.reserve_space(message.grype_file.file_name, GRYPE_SPACE_BUFFER):
@@ -136,15 +137,3 @@ class ScannerWorker(Worker, ABC):
         :param root_dir: Temp root directory working in
         """
         self._work_dir_path = tempfile.mkdtemp(prefix='grype_', dir=kwargs['root_dir'])
-
-    def get_grype_version(self) -> str:
-        """
-        :return: Version of grype being used by this generator
-        """
-        return self._grype.get_version()
-
-    def get_grype_db_source(self) -> str:
-        """
-        :return: URL of grype database source
-        """
-        return self._grype.db_source

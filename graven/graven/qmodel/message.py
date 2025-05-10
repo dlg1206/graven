@@ -1,3 +1,5 @@
+from threading import Semaphore
+
 from qmodel.file import JarFile, GrypeFile, SyftFile
 from shared.cache_manager import CacheManager
 
@@ -24,14 +26,15 @@ class Message:
         self.syft_file: SyftFile | None = None
         self.grype_file: GrypeFile | None = None
 
-    def init_jar_file(self, cache: CacheManager, work_dir: str) -> None:
+    def init_jar_file(self, cache: CacheManager, work_dir: str, jar_limit_semaphore: Semaphore = None) -> None:
         """
         Init a new jar file
 
         :param cache: Cache where file is stored
         :param work_dir: Working directory to create file
+        :param jar_limit_semaphore: Optional limit to number of jars downloaded at one time
         """
-        self.jar_file = JarFile(cache, work_dir, self._jar_id)
+        self.jar_file = JarFile(cache, work_dir, self._jar_id, jar_limit_semaphore)
 
     def init_syft_file(self, cache: CacheManager, work_dir: str) -> None:
         """

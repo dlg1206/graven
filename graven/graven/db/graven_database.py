@@ -60,14 +60,14 @@ class Stage(Enum):
     Stage enums
     """
     CRAWLER = "CRAWL"
-    TRN_DB_DWN = "0_TRN_DATABASE_DOWNLOAD"
-    DOWNLOADER = "1_DOWNLOAD"
-    TRN_DWN_GEN = "2_TRN_DOWNLOAD_GENERATOR"
-    GENERATOR = "3_GENERATOR"
-    TRN_GEN_SCN = "4_TRN_GENERATOR_SCANNER"
-    SCANNER = "5_SCANNER"
-    TRN_SCN_ANL = "6_TRN_SCANNER_ANALYZER"
-    ANALYZER = "7_ANALYZER"
+    TRN_DB_DWN = "TRN_DATABASE_DOWNLOAD"
+    DOWNLOADER = "DOWNLOAD"
+    TRN_DWN_ANCHORE = "TRN_DOWNLOAD_ANCHORE"
+    GENERATOR = "GENERATOR"
+    TRN_GEN_SCN = "TRN_GENERATOR_SCANNER"
+    SCANNER = "SCANNER"
+    TRN_SCN_ANL = "TRN_SCANNER_ANALYZER"
+    ANALYZER = "ANALYZER"
     VULN = "VULN"
 
 
@@ -102,7 +102,7 @@ class GravenDatabase(MySQLDatabase):
         :param cve_id: CVE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id, 'status_code': None}, fetch_all=False)) != 0
+        return len(self._select(Table.CVE, where_equals={'cve_id': cve_id}, fetch_all=False)) != 0
 
     def has_seen_cwe(self, cwe_id: str) -> bool:
         """
@@ -112,7 +112,7 @@ class GravenDatabase(MySQLDatabase):
         :param cwe_id: CWE id to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id, 'status_code': None}, fetch_all=False)) != 0
+        return len(self._select(Table.CWE, where_equals={'cwe_id': cwe_id}, fetch_all=False)) != 0
 
     def get_cve_for_update(self) -> str | None:
         """
