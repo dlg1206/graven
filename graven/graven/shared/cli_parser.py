@@ -9,7 +9,7 @@ from shared.logger import Level
 from worker.pipeline_builder import DEFAULT_MAX_CONCURRENT_MAVEN_REQUESTS, DEFAULT_MAX_CPU_THREADS
 
 """
-File: parser.py
+File: cli_parser.py
 
 Description: Parser for CLI arguments
 
@@ -102,12 +102,18 @@ def _add_process_options(parser: ArgumentParser) -> None:
                                     f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
 
-def _add_misc_options(parser: ArgumentParser, add_request_limit: bool = True, add_cpu_limit: bool = True) -> None:
+def _add_misc_options(parser: ArgumentParser,
+                      add_request_limit: bool = True,
+                      add_cpu_limit: bool = True,
+                      add_disable_vuln: bool = True,
+                      add_enable_vuln: bool = False) -> None:
     """
     Add misc options to the given parser
 
     :param add_request_limit: Add the request limit arg (Default: True)
     :param add_cpu_limit: Add max cpu thread limit arg (Default: True)
+    :param add_disable_vuln: Add disable vuln update arg (Default: True)
+    :param add_enable_vuln: Add enable vuln update arg (Default: False)
     """
     misc_group = parser.add_argument_group("Miscellaneous Options")
 
@@ -126,6 +132,16 @@ def _add_misc_options(parser: ArgumentParser, add_request_limit: bool = True, ad
                                 help=f"Max number of threads allowed to be used to generate anchore results. "
                                      f"Increase with caution (Default: {DEFAULT_MAX_CPU_THREADS})",
                                 default=DEFAULT_MAX_CPU_THREADS)
+    # ensure both cannot be used
+    update_vuln_flags = misc_group.add_mutually_exclusive_group()
+    if add_disable_vuln:
+        update_vuln_flags.add_argument("--disable-update-vuln",
+                                       action='store_true',
+                                       help="Disable real-time queries for CVE and CWE details")
+    if add_enable_vuln:
+        update_vuln_flags.add_argument("--enable-update-vuln",
+                                       action='store_true',
+                                       help="Enable real-time queries for CVE and CWE details")
 
 
 def create_parser() -> ArgumentParser:
@@ -164,13 +180,13 @@ def create_parser() -> ArgumentParser:
     crawl_parser = subparsers.add_parser("crawl", help=crawl_help, description=crawl_help)
     _add_input_options(crawl_parser)
     _add_crawl_options(crawl_parser)
-    _add_misc_options(crawl_parser, add_cpu_limit=False)
+    _add_misc_options(crawl_parser, add_cpu_limit=False, add_disable_vuln=False)
 
     # process
     process_help = "Process jars stored in the database"
     process_parser = subparsers.add_parser("process", help=process_help, description=process_help)
     _add_process_options(process_parser)
-    _add_misc_options(process_parser)
+    _add_misc_options(process_parser, add_disable_vuln=False, add_enable_vuln=True)
 
     # vuln
     vuln_help = "Update CVE and CWE data"

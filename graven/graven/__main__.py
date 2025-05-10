@@ -3,8 +3,8 @@ from argparse import Namespace
 from dotenv import load_dotenv
 
 from shared.cache_manager import DEFAULT_MAX_CAPACITY, mb_to_bytes
+from shared.cli_parser import create_parser, parse_input_args_for_seed_urls
 from shared.logger import Level, logger
-from shared.parser import create_parser, parse_input_args_for_seed_urls
 from worker.pipeline_builder import PipelineBuilder
 
 """
@@ -43,8 +43,10 @@ def _execute(args: Namespace) -> None:
         # todo - add cli option to skip this
         syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
         pipline_builder.set_generator_worker(syft_cache, args.syft_path)
-    # init vuln fetch
-    if args.command == 'run' or args.command == 'update-vuln':
+    # init vuln fetch (add to run if not disabled) or if enabled
+    if args.command == 'run' and not args.disable_update_vuln or args.command == 'update-vuln':
+        pipline_builder.set_vuln_worker()
+    elif hasattr(args, 'enable_update_vuln') and args.enable_update_vuln:
         pipline_builder.set_vuln_worker()
 
     # start job

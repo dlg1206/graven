@@ -89,7 +89,6 @@ class PipelineBuilder:
         # download to gen
         self._downloader.set_producer_queue(generator_queue)
         self._generator.set_consumer_queue(generator_queue)
-        # self._generator.set_consumer_queue(Queue())
         # gen to scan
         self._generator.set_producer_queue(scan_queue)
         self._scanner.set_consumer_queue(scan_queue)
