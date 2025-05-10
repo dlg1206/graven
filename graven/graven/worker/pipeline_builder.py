@@ -11,7 +11,7 @@ from anchore.syft import Syft
 from db.graven_database import GravenDatabase
 from shared.logger import logger
 from shared.timer import Timer
-from worker.analzyer import AnalyzerWorker
+from worker.analzyer import AnalyzerWorker, MAX_ANALYZER_THREADS
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
@@ -216,6 +216,7 @@ class PipelineBuilder:
         crawl_exe = ThreadPoolExecutor(max_workers=self._crawler_thread_count) if self._crawler else None
         downloader_exe = ThreadPoolExecutor(max_workers=self._downloader_thread_count) if self._downloader else None
         cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count) if self._scanner or self._generator else None
+        analyzer_exe = ThreadPoolExecutor(max_workers=MAX_ANALYZER_THREADS) if self._analyzer else None
 
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
@@ -231,7 +232,7 @@ class PipelineBuilder:
             if self._scanner:
                 tasks.append(lambda: _graceful_start(self._scanner.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._analyzer:
-                tasks.append(lambda: _graceful_start(self._analyzer.start, run_id))
+                tasks.append(lambda: _graceful_start(self._analyzer.start, run_id, analyzer_exe))
             if self._vuln_fetcher:
                 tasks.append(lambda: _graceful_start(self._vuln_fetcher.start, run_id))
 

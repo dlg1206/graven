@@ -1,5 +1,6 @@
 import json
 from abc import ABC
+from concurrent.futures import Future
 from datetime import datetime, timezone
 from threading import Event
 
@@ -19,6 +20,8 @@ Description: Worker dedicated to parsing anchore output and writing data to the 
 
 @author Derek Garcia
 """
+
+MAX_ANALYZER_THREADS = 50
 
 
 class AnalyzerWorker(Worker, ABC):
@@ -133,7 +136,7 @@ class AnalyzerWorker(Worker, ABC):
             message.close()
             self._consumer_queue.task_done()
 
-    def _handle_message(self, message: Message | str) -> None:
+    def _handle_message(self, message: Message | str) -> Future | None:
         """
         Handle a message from the queue and return the future submitted to the executor
 
@@ -144,9 +147,8 @@ class AnalyzerWorker(Worker, ABC):
         if not self._seen_file:
             self._seen_file = True
             self._timer.start()
-        # process sequentially
-        self._analyze_files(message)
-        return
+
+        return self._thread_pool_executor.submit(self._analyze_files, message)
 
     def _post_start(self) -> None:
         """
