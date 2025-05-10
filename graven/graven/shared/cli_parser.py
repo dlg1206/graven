@@ -135,16 +135,15 @@ def _add_misc_options(parser: ArgumentParser,
                                 help=f"Max number of threads allowed to be used to generate anchore results. "
                                      f"Increase with caution (Default: {DEFAULT_MAX_CPU_THREADS})",
                                 default=DEFAULT_MAX_CPU_THREADS)
-    # ensure both cannot be used
-    update_vuln_flags = misc_group.add_mutually_exclusive_group()
+
     if add_disable_vuln:
-        update_vuln_flags.add_argument("--disable-update-vuln",
-                                       action='store_true',
-                                       help="Disable real-time queries for CVE and CWE details")
+        misc_group.add_argument("--disable-update-vuln",
+                                action='store_true',
+                                help="Disable real-time queries for CVE and CWE details")
     if add_enable_vuln:
-        update_vuln_flags.add_argument("--enable-update-vuln",
-                                       action='store_true',
-                                       help="Enable real-time queries for CVE and CWE details")
+        misc_group.add_argument("--enable-update-vuln",
+                                action='store_true',
+                                help="Enable real-time queries for CVE and CWE details")
 
 
 def create_parser() -> ArgumentParser:

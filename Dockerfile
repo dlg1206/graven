@@ -17,7 +17,7 @@ RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh |
 
 FROM python:3.12.9-alpine3.21 AS graven
 LABEL maintainer="Derek Garcia <dgarcia2@hawaii.edu>"
-LABEL version=2.1.0
+LABEL version=2.2.0
 LABEL name=graven
 ENV HOME="/home/graven"
 ENV PATH=$PATH:/home/graven/.local/bin
