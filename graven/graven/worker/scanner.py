@@ -21,7 +21,7 @@ Description: Use grype to scan jars to find CVEs
 @author Derek Garcia
 """
 
-GRYPE_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per grype report
+GRYPE_SPACE_BUFFER = 0.02 * BYTES_PER_MB  # reserve .02 MB / 20 KB of space per grype report
 
 
 class ScannerWorker(Worker, ABC):

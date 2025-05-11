@@ -21,7 +21,7 @@ Description: Use syft to generate SBOMs
 @author Derek Garcia
 """
 
-SYFT_SPACE_BUFFER = 0.5 * BYTES_PER_MB  # reserve .5 MB / 500 KB of space per sbom
+SYFT_SPACE_BUFFER = 0.05 * BYTES_PER_MB  # reserve .05 MB / 50 KB of space per sbom
 
 
 class GeneratorWorker(Worker, ABC):
