@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS error_log
     stage         VARCHAR(32),
     jar_id        VARCHAR(255),
     error_type    VARCHAR(255),
-    error_message VARCHAR(255),
+    error_message TEXT,
     details       JSON,
     FOREIGN KEY (jar_id) REFERENCES jar (jar_id),
     FOREIGN KEY (run_id) REFERENCES run_log (run_id)
