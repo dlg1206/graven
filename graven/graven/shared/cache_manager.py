@@ -7,6 +7,8 @@ Description:
 from contextlib import contextmanager
 from threading import Lock
 
+from shared.logger import logger
+
 BYTES_PER_MB = 1024 ** 2
 BYTES_PER_GB = 1024 ** 3
 
@@ -66,6 +68,7 @@ class CacheManager:
             if space_available:
                 self._index[file_uid] = file_size
                 self._current_capacity += file_size
+                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} | space: {self._current_capacity}")
             return space_available
 
     def update_space(self, file_uid: str, file_size: int) -> None:
@@ -80,18 +83,23 @@ class CacheManager:
             return
         # else update
         with self._open_critical_section():
-            diff = self._index[file_uid] - file_size
-            self._current_capacity += diff
+            diff = self._index[file_uid] - file_size    # before - after
+            # remove previous estimate
+            self._current_capacity -= self._index[file_uid]
+            # set with corrected estimate
             self._index[file_uid] = file_size
+            self._current_capacity += file_size
+            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} | space: {self._current_capacity}")
 
     def free_space(self, file_uid: str) -> None:
         """
-        Free space from the cache
-
+        Free space from the cache)
         param file_uid: ID of file to reference
         """
         with self._open_critical_section():
-            self._current_capacity -= self._index.pop(file_uid, 0)
+            free = self._index.pop(file_uid, 0)
+            self._current_capacity -= free
+            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} | space: {self._current_capacity}")
 
 
 def bytes_to_mb(size: int) -> float:
