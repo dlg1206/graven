@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS cwe
 (
     cwe_id       VARCHAR(10) PRIMARY KEY,
-    name         VARCHAR(100) UNIQUE,
+    name         VARCHAR(255) UNIQUE,
     description  TEXT,
     source       VARCHAR(255),
     last_queried TIMESTAMP,
