@@ -91,10 +91,10 @@ class Logger:
 
         :param logging_level: Logging level (default: INFO)
         """
-        if logging_level not in {member.name for member in Level}:
+        if logging_level not in {member for member in Level}:
             raise ValueError(
                 f"Invalid logging level: '{logging_level}'. "
-                f"Must be one of " f"{[Level.SILENT.name, Level.INFO.name, Level.ERROR.name, Level.DEBUG.name]}")
+                f"Must be one of '{[Level.SILENT.name, Level.INFO.name, Level.ERROR.name, Level.DEBUG.name]}'")
         self._logging_level = logging_level
 
     def _log(self, level: Level, msg: str, exception: Exception | None = None) -> None:

@@ -231,7 +231,7 @@ class Grype:
 
         :return: grype version
         """
-        result = subprocess.run(["self._bin_path", "--version"],
+        result = subprocess.run(f"{self._bin_path} --version",
                                 shell=True,
                                 capture_output=True,  # Capture stdout & stderr
                                 text=True,  # Return output as string
