@@ -14,3 +14,5 @@ CREATE TABLE IF NOT EXISTS jar
     run_id          INTEGER,
     FOREIGN KEY (run_id) REFERENCES run_log (run_id)
 );
+# create index
+CREATE INDEX idx_jar_status ON jar (status);
