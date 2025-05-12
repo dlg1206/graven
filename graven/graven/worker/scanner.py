@@ -1,3 +1,11 @@
+"""
+File: scanner.py
+
+Description: Use grype to scan jars to find CVEs
+
+@author Derek Garcia
+"""
+
 import tempfile
 import time
 from abc import ABC
@@ -13,19 +21,18 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: scanner.py
-
-Description: Use grype to scan jars to find CVEs
-
-@author Derek Garcia
-"""
-
-GRYPE_SPACE_BUFFER = 0.02 * BYTES_PER_MB  # reserve .02 MB / 20 KB of space per grype report
+# reserve .02 MB / 20 KB of space per grype report
+GRYPE_SPACE_BUFFER = 0.02 * BYTES_PER_MB
 
 
 class ScannerWorker(Worker, ABC):
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, grype: Grype, cache_size: int):
+    """
+    Worker that constantly generate vulnerability reports using grype
+    """
+
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
+                 grype: Grype,
+                 cache_size: int):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 
@@ -83,7 +90,8 @@ class ScannerWorker(Worker, ABC):
                 logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
                 self._handle_shutdown(message)
             else:
-                self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
+                self._database.update_jar_status(
+                    message.jar_id, Stage.TRN_SCN_ANL)
                 self._producer_queue.put(message)
 
         except (GrypeScanFailure, Exception) as e:
@@ -129,10 +137,9 @@ class ScannerWorker(Worker, ABC):
         Prints statistics about the scanner
         """
         logger.info(f"Scanner completed in {self._timer.format_time()}")
-        logger.info(
-            f"Scanner has scanned {self._sboms_scanned} SBOMs ({self._timer.get_count_per_second(self._sboms_scanned):.01f} SBOMs / s)")
-        logger.info(
-            f"Scanner has scanned {self._jars_scanned} jars")
+        logger.info(f"Scanner has scanned {self._sboms_scanned} SBOMs "
+                    f"({self._timer.get_count_per_second(self._sboms_scanned):.01f} SBOMs / s)")
+        logger.info(f"Scanner has scanned {self._jars_scanned} jars")
 
     def _pre_start(self, **kwargs: Any) -> None:
         """
@@ -140,4 +147,5 @@ class ScannerWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir_path = tempfile.mkdtemp(prefix='grype_', dir=kwargs['root_dir'])
+        self._work_dir_path = tempfile.mkdtemp(
+            prefix='grype_', dir=kwargs['root_dir'])

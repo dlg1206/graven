@@ -1,3 +1,11 @@
+"""
+File: generator.py
+
+Description: Use syft to generate SBOMs
+
+@author Derek Garcia
+"""
+
 import tempfile
 import time
 from abc import ABC
@@ -13,18 +21,15 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: generator.py
-
-Description: Use syft to generate SBOMs
-
-@author Derek Garcia
-"""
-
-SYFT_SPACE_BUFFER = 0.05 * BYTES_PER_MB  # reserve .05 MB / 50 KB of space per sbom
+# reserve .05 MB / 50 KB of space per sbom
+SYFT_SPACE_BUFFER = 0.05 * BYTES_PER_MB
 
 
 class GeneratorWorker(Worker, ABC):
+    """
+    Worker that constantly generates SBOMs using syft
+    """
+
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int):
         """
         Create a new generator worker that spawns threads to process jars using syft

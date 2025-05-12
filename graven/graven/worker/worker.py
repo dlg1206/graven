@@ -1,3 +1,11 @@
+"""
+File: worker.py
+
+Description: Generic worker to handle common tasks
+
+@author Derek Garcia
+"""
+
 import concurrent
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -10,18 +18,14 @@ from qmodel.message import Message
 from shared.logger import logger
 from shared.timer import Timer
 
-"""
-File: worker.py
-
-Description: Generic worker to handle common tasks
-
-@author Derek Garcia
-"""
-
 QUEUE_POLL_TIMEOUT = 1
 
 
 class Worker(ABC):
+    """
+    Generic worker to handle common tasks
+
+    """
 
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase, name: str):
         """
@@ -95,13 +99,13 @@ class Worker(ABC):
 
         :param kwargs: Any pre start configuration
         """
-        pass
+        return
 
     def _post_start(self) -> None:
         """
         Optional post start conditions to handle
         """
-        pass
+        return
 
     def set_consumer_queue(self, consumer_queue: Queue[Any | None]) -> None:
         """
@@ -147,7 +151,7 @@ class Worker(ABC):
                     self._tasks.append(task)
             except Empty:
                 """
-                To prevent deadlocks, the forced timeout with throw this error 
+                To prevent deadlocks, the forced timeout with throw this error
                 for another iteration of the loop to check conditions
                 """
                 # determine whether to continue or break
@@ -183,11 +187,11 @@ class Worker(ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
-        pass
+        return
 
     @abstractmethod
     def print_statistics_message(self) -> None:
         """
         Print worker specific statistic messages
         """
-        pass
+        return

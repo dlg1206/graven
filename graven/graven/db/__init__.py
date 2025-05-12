@@ -1,7 +1,7 @@
 """
 File: __init__.py.py
 
-Description: 
+Description:
 
 @author Derek Garcia
 """

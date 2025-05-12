@@ -1,3 +1,11 @@
+"""
+File: pipeline_builder.py
+
+Description: Builder for generating, coupling, and running graven workers
+
+@author Derek Garcia
+"""
+
 import concurrent
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -11,25 +19,21 @@ from anchore.syft import Syft
 from db.graven_database import GravenDatabase
 from shared.logger import logger
 from shared.timer import Timer
-from worker.analzyer import AnalyzerWorker, MAX_ANALYZER_THREADS
+from worker.analyzer import AnalyzerWorker, MAX_ANALYZER_THREADS
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
 from worker.scanner import ScannerWorker
 from worker.vuln_fetcher import VulnFetcherWorker
 
-"""
-File: pipeline_builder.py
-
-Description: Builder for generating, coupling, and running graven workers
-
-@author Derek Garcia
-"""
-
 DEFAULT_MAX_CPU_THREADS = os.cpu_count()
 
 
 class PipelineBuilder:
+    """
+    Builder to construct graven pipelines to run
+    """
+
     def __init__(self):
         """
         Create new pipeline builder
@@ -96,7 +100,7 @@ class PipelineBuilder:
     def set_crawler_thread_limit(self, limit: int) -> None:
         """
         Set crawler thread count limit
-        
+
         :param limit: thread limit
         """
         self._crawler_thread_count = limit
@@ -117,7 +121,11 @@ class PipelineBuilder:
         """
         self._cpu_thread_count = limit
 
-    def set_crawler_worker(self, seed_urls: List[str], update_domain: bool, update_jar: bool) -> 'PipelineBuilder':
+    def set_crawler_worker(
+            self,
+            seed_urls: List[str],
+            update_domain: bool,
+            update_jar: bool) -> 'PipelineBuilder':
         """
         Add a crawler worker to the pipeline
 
@@ -126,11 +134,21 @@ class PipelineBuilder:
         :param update_jar: Update a jar if already seen
         :return: builder
         """
-        self._crawler = CrawlerWorker(self._interrupt_stop_flag, self._database, seed_urls, update_domain, update_jar)
+        self._crawler = CrawlerWorker(
+            self._interrupt_stop_flag,
+            self._database,
+            seed_urls,
+            update_domain,
+            update_jar)
         return self
 
-    def set_process_workers(self, download_cache_size: int, grype_cache_size: int,
-                            grype_path: str, grype_db_source: str, jar_limit: int = None) -> 'PipelineBuilder':
+    def set_process_workers(
+            self,
+            download_cache_size: int,
+            grype_cache_size: int,
+            grype_path: str,
+            grype_db_source: str,
+            jar_limit: int = None) -> 'PipelineBuilder':
         """
         Create all the workers required for the process operation
         By default, syft SBOMs are not generated
@@ -138,7 +156,9 @@ class PipelineBuilder:
         :param download_cache_size: Size of jar cache to use in bytes
         :param grype_cache_size: Size of grype cache to use in bytes
         :param grype_path: Path to grype bin
-        :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
+        :param grype_db_source:
+            Optional source url of specific grype database to use.
+            If defined, database will not be updated
         :param jar_limit: Optional limit of jars to download at once
         :return: builder
         """
@@ -150,9 +170,18 @@ class PipelineBuilder:
         self._grype_version = grype.get_version()
         self._grype_db_source = grype_db_source
         # set workers
-        self._downloader = DownloaderWorker(self._interrupt_stop_flag, self._database, download_cache_size, jar_limit)
-        self._scanner = ScannerWorker(self._interrupt_stop_flag, self._database, grype, grype_cache_size)
-        self._analyzer = AnalyzerWorker(self._interrupt_stop_flag, self._database)
+        self._downloader = DownloaderWorker(
+            self._interrupt_stop_flag,
+            self._database,
+            download_cache_size,
+            jar_limit)
+        self._scanner = ScannerWorker(
+            self._interrupt_stop_flag,
+            self._database,
+            grype,
+            grype_cache_size)
+        self._analyzer = AnalyzerWorker(
+            self._interrupt_stop_flag, self._database)
 
         # create message queues
         scan_queue = Queue()
@@ -163,7 +192,10 @@ class PipelineBuilder:
         self._analyzer.set_consumer_queue(analyzer_queue)
         return self
 
-    def set_generator_worker(self, cache_size: int, syft_path: str) -> 'PipelineBuilder':
+    def set_generator_worker(
+            self,
+            cache_size: int,
+            syft_path: str) -> 'PipelineBuilder':
         """
         Create a new generator worker
 
@@ -177,7 +209,8 @@ class PipelineBuilder:
         else:
             syft = Syft()
         self._syft_version = syft.get_version()
-        self._generator = GeneratorWorker(self._interrupt_stop_flag, self._database, syft, cache_size)
+        self._generator = GeneratorWorker(
+            self._interrupt_stop_flag, self._database, syft, cache_size)
         return self
 
     def set_vuln_worker(self) -> 'PipelineBuilder':
@@ -186,7 +219,8 @@ class PipelineBuilder:
 
         :return: builder
         """
-        self._vuln_fetcher = VulnFetcherWorker(self._interrupt_stop_flag, self._database)
+        self._vuln_fetcher = VulnFetcherWorker(
+            self._interrupt_stop_flag, self._database)
         return self
 
     def run_workers(self) -> int:
@@ -209,14 +243,22 @@ class PipelineBuilder:
         if self._generator:
             self._couple_generator()
 
-        # todo - crawl, process, and vuln each get own run ids but same batch number
-        run_id = self._database.log_run_start(self._syft_version, self._grype_version, self._grype_db_source)
+        # todo - crawl, process, and vuln each get own run ids but same batch
+        # number
+        run_id = self._database.log_run_start(
+            self._syft_version,
+            self._grype_version,
+            self._grype_db_source)
 
         # create threadpools to be sheared by workers
-        crawl_exe = ThreadPoolExecutor(max_workers=self._crawler_thread_count) if self._crawler else None
-        downloader_exe = ThreadPoolExecutor(max_workers=self._downloader_thread_count) if self._downloader else None
-        cpu_exe = ThreadPoolExecutor(max_workers=self._cpu_thread_count) if self._scanner or self._generator else None
-        analyzer_exe = ThreadPoolExecutor(max_workers=MAX_ANALYZER_THREADS) if self._analyzer else None
+        crawl_exe = ThreadPoolExecutor(
+            max_workers=self._crawler_thread_count) if self._crawler else None
+        downloader_exe = ThreadPoolExecutor(
+            max_workers=self._downloader_thread_count) if self._downloader else None
+        cpu_exe = ThreadPoolExecutor(
+            max_workers=self._cpu_thread_count) if self._scanner or self._generator else None
+        analyzer_exe = ThreadPoolExecutor(
+            max_workers=MAX_ANALYZER_THREADS) if self._analyzer else None
 
         # spawn tasks
         with TemporaryDirectory(prefix='graven_') as tmp_dir:
@@ -226,13 +268,17 @@ class PipelineBuilder:
             if self._crawler:
                 tasks.append(lambda: _graceful_start(self._crawler.start, run_id, crawl_exe))
             if self._downloader:
-                tasks.append(lambda: _graceful_start(self._downloader.start, run_id, downloader_exe, root_dir=tmp_dir))
+                tasks.append(
+                    lambda: _graceful_start(self._downloader.start, run_id, downloader_exe, root_dir=tmp_dir))
             if self._generator:
-                tasks.append(lambda: _graceful_start(self._generator.start, run_id, cpu_exe, root_dir=tmp_dir))
+                tasks.append(
+                    lambda: _graceful_start(self._generator.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._scanner:
-                tasks.append(lambda: _graceful_start(self._scanner.start, run_id, cpu_exe, root_dir=tmp_dir))
+                tasks.append(
+                    lambda: _graceful_start(self._scanner.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._analyzer:
-                tasks.append(lambda: _graceful_start(self._analyzer.start, run_id, analyzer_exe))
+                tasks.append(
+                    lambda: _graceful_start(self._analyzer.start, run_id, analyzer_exe))
             if self._vuln_fetcher:
                 tasks.append(lambda: _graceful_start(self._vuln_fetcher.start, run_id))
 
@@ -242,14 +288,14 @@ class PipelineBuilder:
                 try:
                     # poll futures to break on interrupt
                     while not self._interrupt_stop_flag.is_set():
-                        _, not_done = concurrent.futures.wait(futures, timeout=1)
+                        _, not_done = concurrent.futures.wait(
+                            futures, timeout=1)
                         if not not_done:
                             break
                 # interrupt
                 except KeyboardInterrupt:
                     # report early exit with padding
-                    logger.warn(
-                        f"\n\n{'\033[1;31mKeyboardInterrupt received! Shutting down workers. . .\n\033[0m' * 5}")
+                    logger.warn(f"\n\n{'\033[1;31mKeyboardInterrupt received! Shutting down workers. . \n\033[0m' * 5}")
                     self._interrupt_stop_flag.set()
                     logger.warn("Shutting down workers")
                     exit_code = 2

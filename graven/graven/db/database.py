@@ -1,3 +1,9 @@
+"""
+File: database.py
+Description: MySQL database interface for handling cve data
+@author Derek Garcia
+"""
+
 import os
 from enum import Enum
 from typing import List, Tuple, Any, Dict
@@ -6,12 +12,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from shared.logger import logger
-
-"""
-File: database.py
-Description: MySQL database interface for handling cve data
-@author Derek Garcia
-"""
 
 DEFAULT_POOL_SIZE = 10
 MAX_OVERFLOW_RATIO = 2  # default 200% of pool size
@@ -30,7 +30,8 @@ class MySQLDatabase:
 
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
-        Create MySQL interface and connection pool to use. Uses environment variables for credentials
+        Create MySQL interface and connection pool to use.
+        Uses environment variables for credentials
 
         :param pool_size: Size of connection pool to create
         """
@@ -52,7 +53,10 @@ class MySQLDatabase:
     # CRUD methods
     #
 
-    def _insert(self, table: TableEnum, inserts: Dict[str, Any], on_success_msg: str = None) -> int | None:
+    def _insert(self,
+                table: TableEnum,
+                inserts: Dict[str, Any],
+                on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
@@ -76,16 +80,20 @@ class MySQLDatabase:
                     logger.debug_msg(on_success_msg)
                 # return auto incremented id if used
                 return result.lastrowid
-        except IntegrityError as ie:
+        except IntegrityError:
             # duplicate entry
-            # logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})") # disabled b/c annoying
-            pass
+            # logger.debug_msg(f"{ie.errno} | {table.value} | ({',
+            # '.join(values)})") # disabled b/c annoying
+            return None
         except OperationalError as oe:
             # failed to insert
             logger.error_exp(oe)
             return None
 
-    def _select(self, table: TableEnum, columns: List[str] = None, where_equals: Dict[str, Any] = None,
+    def _select(self,
+                table: TableEnum,
+                columns: List[str] = None,
+                where_equals: Dict[str, Any] = None,
                 fetch_all: bool = True) -> List[Tuple[Any]]:
         """
         Generic select from the database
@@ -93,7 +101,9 @@ class MySQLDatabase:
         :param table: Table to select from
         :param columns: optional column names to insert into (default: *)
         :param where_equals: optional where equals clause (column, value)
-        :param fetch_all: Fetch all rows, fetch one if false. Useful if checking to table contains value (Default: True)
+        :param fetch_all:
+            Fetch all rows, fetch one if false.
+            Useful if checking to table contains value (Default: True)
         """
         # build SQL
         columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
@@ -111,17 +121,23 @@ class MySQLDatabase:
 
         # connect is simple
         with self._engine.connect() as conn:
-            result = conn.execute(text(sql), where_equals if where_equals else {})
+            result = conn.execute(
+                text(sql), where_equals if where_equals else {})
             if fetch_all:
                 rows = result.fetchall()
                 # convert to tuples if response, else return nothing
                 return [tuple(row) for row in rows] if rows else []
-            else:
-                row = result.fetchone()
-                return [row] if row else []  # fetch_one returns tuple, convert to list
 
-    def _update(self, table: TableEnum, updates: Dict[str, Any], where_equals: Dict[str, Any] = None,
-                on_success: str = None, amend: bool = False) -> bool:
+            # fetch_one returns tuple, convert to list
+            row = result.fetchone()
+            return [row] if row else []
+
+    def _update(self,
+                table: TableEnum,
+                updates: Dict[str, Any],
+                where_equals: Dict[str, Any] = None,
+                on_success: str = None,
+                amend: bool = False) -> bool:
         """
         Generic update from the database
 
@@ -134,18 +150,22 @@ class MySQLDatabase:
         """
         # build SQL
         if amend:
-            set_clause = ', '.join(f"{col} = {col} || :set_{col}" for col in updates.keys())
+            set_clause = ', '.join(
+                f"{col} = {col} || :set_{col}" for col in updates.keys())
         else:
-            set_clause = ', '.join(f"{col} = :set_{col}" for col in updates.keys())
+            set_clause = ', '.join(
+                f"{col} = :set_{col}" for col in updates.keys())
 
         sql = f"UPDATE {table.value} SET {set_clause}"
         params = {f"set_{col}": val for col, val in updates.items()}
 
         # add where clauses if given
         if where_equals:
-            where_clause = ' AND '.join(f"{col} = :where_{col}" for col in where_equals.keys())
+            where_clause = ' AND '.join(
+                f"{col} = :where_{col}" for col in where_equals.keys())
             sql += f" WHERE {where_clause}"
-            params.update({f"where_{col}": val for col, val in where_equals.items()})
+            params.update({f"where_{col}": val for col,
+            val in where_equals.items()})
         # execute
         try:
             with self._engine.begin() as conn:
@@ -160,7 +180,10 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return False
 
-    def _upsert(self, table: TableEnum, primary_keys: Dict[str, Any], updates: Dict[str, Any],
+    def _upsert(self,
+                table: TableEnum,
+                primary_keys: Dict[str, Any],
+                updates: Dict[str, Any],
                 print_on_success: bool = False) -> None:
         """
         Generic upsert to the database
@@ -174,11 +197,16 @@ class MySQLDatabase:
         msg = None
         if print_on_success:
             msg = ", ".join([f"{k} '{v}'" for k, v in primary_keys.items()])
-        updated = self._update(table, updates,
-                               where_equals=primary_keys,
-                               on_success=f"Updated {msg}" if print_on_success else None,
-                               amend=False)
+        updated = self._update(
+            table,
+            updates,
+            where_equals=primary_keys,
+            on_success=f"Updated {msg}" if print_on_success else None,
+            amend=False)
         if not updated:
             # if fail, insert
             updates.update(primary_keys)
-            self._insert(table, updates, on_success_msg=f"Inserted {msg}" if print_on_success else None)
+            self._insert(
+                table,
+                updates,
+                on_success_msg=f"Inserted {msg}" if print_on_success else None)

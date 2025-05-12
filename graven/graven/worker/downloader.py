@@ -1,3 +1,11 @@
+"""
+File: downloader.py
+
+Description: Download jars into temp directories to be scanned
+
+@author Derek Garcia
+"""
+
 import os
 import tempfile
 import time
@@ -16,20 +24,17 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: downloader.py
-
-Description: Download jars into temp directories to be scanned
-
-@author Derek Garcia
-"""
-
 RETRY_SLEEP = 10
 JAR_LIMIT_TIMEOUT = 30
-DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()  # limit to match cpus since binaries should be capped at thread count
+# limit to match cpus since binaries should be capped at thread count
+DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()
 
 
 class DownloaderWorker(Worker, ABC):
+    """
+    Worker that download jars into temp directories to be scanned
+    """
+
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
                  download_limit_bytes: int = DEFAULT_MAX_CAPACITY,
                  jar_limit: int = None):
@@ -72,7 +77,7 @@ class DownloaderWorker(Worker, ABC):
         try:
             # init jar
             timer = Timer(True)
-            with requests.get(message.jar_url) as response:
+            with requests.get(message.jar_url, allow_redirects=True, timeout=999) as response:
                 response.raise_for_status()
                 with open(message.jar_file.file_path, 'wb') as file:
                     file.write(response.content)
@@ -112,13 +117,14 @@ class DownloaderWorker(Worker, ABC):
         """
         try:
             # ensure space available
-            response = requests.head(message.jar_url, allow_redirects=True)
+            response = requests.head(message.jar_url, allow_redirects=True, timeout=999)
             content_length = int(response.headers.get('content-length', 0))  # todo - content is 0?
             # warn if length not present
             if not content_length:
                 logger.warn(f"content-length is 0 | {message.jar_url}")
             # try to reserve space, requeue if no space
-            if not self._cache_manager.reserve_space(message.jar_id, content_length):
+            if not self._cache_manager.reserve_space(
+                    message.jar_id, content_length):
                 logger.warn("No space left in cache, trying later. . .")
                 self._database.shelf_message(message.jar_id)
                 time.sleep(RESERVE_BACKOFF_TIMEOUT)
@@ -137,17 +143,18 @@ class DownloaderWorker(Worker, ABC):
             self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()
+        return None
 
     def _handle_none_message(self) -> Literal['continue', 'break']:
         """
         Handle when get none message
         """
-        # not using the crawler or are using and done flag is set - means no more jars will be found
+        # not using the crawler or are using and done flag is set - means no
+        # more jars will be found
         if not self._crawler_done_flag or self._crawler_done_flag.is_set():
             return 'break'
         # else using the crawler and more jars will come
-        logger.warn(
-            f"Found no jars to download but crawler is still running, sleeping for {RETRY_SLEEP}s. . .")
+        logger.warn(f"Found no jars to download but crawler is still running, sleeping for {RETRY_SLEEP}s. . .")
         time.sleep(RETRY_SLEEP)
         return 'continue'
 
@@ -170,7 +177,8 @@ class DownloaderWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir_path = tempfile.mkdtemp(prefix='jar_', dir=kwargs['root_dir'])
+        self._work_dir_path = tempfile.mkdtemp(
+            prefix='jar_', dir=kwargs['root_dir'])
         # if using the crawler, wait until find a hit
         # todo - option to skip wait
         if self._crawler_first_hit_flag:
@@ -184,8 +192,8 @@ class DownloaderWorker(Worker, ABC):
         Prints statistics about the analyzer
         """
         logger.info(f"Downloader completed in {self._timer.format_time()}")
-        logger.info(
-            f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
+        logger.info(f"Downloader has downloaded {self._downloaded_jars} jars "
+                    f"({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
 
     def set_crawler_first_hit_flag(self, flag: Event) -> None:
         """

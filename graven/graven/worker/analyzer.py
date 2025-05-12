@@ -1,3 +1,11 @@
+"""
+File: analyzer.py
+
+Description: Worker dedicated to parsing anchore output and writing data to the database
+
+@author Derek Garcia
+"""
+
 import json
 from abc import ABC
 from concurrent.futures import Future
@@ -13,18 +21,14 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: analyzer.py
-
-Description: Worker dedicated to parsing anchore output and writing data to the database
-
-@author Derek Garcia
-"""
-
 MAX_ANALYZER_THREADS = 50
 
 
 class AnalyzerWorker(Worker, ABC):
+    """
+    Worker dedicated to parsing anchore output and writing data to the database
+    """
+
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
@@ -81,14 +85,18 @@ class AnalyzerWorker(Worker, ABC):
                 # set if first hit
                 if self._analyzer_first_hit_flag and not self._analyzer_done_flag.is_set():
                     self._analyzer_first_hit_flag.set()
-                self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
+                self._database.upsert_cve(
+                    self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
 
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
         # save timestamp (grype uses RFC 3339 timestamp?)
-        last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp']).astimezone(timezone.utc)
-        self._database.upsert_jar_last_grype_scan(self._run_id, jar_id, last_scanned)
+        last_scanned = datetime.fromisoformat(
+            grype_data['descriptor']['timestamp']).astimezone(
+            timezone.utc)
+        self._database.upsert_jar_last_grype_scan(
+            self._run_id, jar_id, last_scanned)
         logger.debug_msg(f"Processed and saved grype report in {timer.format_time()}s | {jar_id}")
 
     def _analyze_files(self, message: Message) -> None:
@@ -112,12 +120,13 @@ class AnalyzerWorker(Worker, ABC):
             # process and save sbom
             if message.syft_file:
                 if message.syft_file.is_open:
-                    self._compress_and_save_sbom(message.jar_id, message.syft_file)
+                    self._compress_and_save_sbom(
+                        message.jar_id, message.syft_file)
                     message.syft_file.close()
                 else:
                     logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
             else:
-                logger.debug_msg(f"syft file dne, skipping. . .")
+                logger.debug_msg("syft file dne, skipping. . .")
             # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
@@ -129,7 +138,8 @@ class AnalyzerWorker(Worker, ABC):
             logger.info(f"Processed in {timer.format_time()}s | {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
+            self._database.log_error(
+                self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # remove any remaining files
@@ -157,7 +167,8 @@ class AnalyzerWorker(Worker, ABC):
         # indicate the analyzer is finished
         if self._analyzer_done_flag:
             self._analyzer_done_flag.set()
-        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        # ensure the hit flag it set if used regardless of any hits to not
+        # deadlock rest of the pipeline
         if self._analyzer_first_hit_flag:
             self._analyzer_first_hit_flag.set()
 
@@ -165,7 +176,7 @@ class AnalyzerWorker(Worker, ABC):
         """
         Print worker specific statistic messages
         """
-        pass
+        return
 
     def set_first_hit_flag(self, flag: Event) -> None:
         """

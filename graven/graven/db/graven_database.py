@@ -1,3 +1,11 @@
+"""
+File: graven_database.py
+
+Description: MySQL database interface for CVE-Breadcrumbs database
+
+@author Derek Garcia
+"""
+
 import io
 import json
 import os
@@ -13,14 +21,6 @@ from sqlalchemy import text
 from db.database import MySQLDatabase, TableEnum, DEFAULT_POOL_SIZE
 from qmodel.message import Message
 from shared.logger import logger
-
-"""
-File: graven_database.py
-
-Description: MySQL database interface for CVE-Breadcrumbs database
-
-@author Derek Garcia
-"""
 
 MAVEN_CENTRAL_ROOT = "https://repo1.maven.org/maven2/"
 
@@ -49,6 +49,9 @@ class JoinTable(TableEnum):
 
 
 class CrawlStatus(Enum):
+    """
+    Status of a given crawl
+    """
     DOES_NOT_EXIST = "DOES_NOT_EXIST"
     NOT_STARTED = "NOT_STARTED"
     IN_PROGRESS = "IN_PROGRESS"
@@ -56,6 +59,9 @@ class CrawlStatus(Enum):
 
 
 class FinalStatus(Enum):
+    """
+    Final status of the jar process
+    """
     DONE = "DONE"
     ERROR = "ERROR"
 
@@ -77,16 +83,21 @@ class Stage(Enum):
 
 
 class GravenDatabase(MySQLDatabase):
+    """
+    Wrapper interface to MySQL database with util
+    methods for graven operations
+    """
+
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
         Create a new interface connection to the database
 
         :param pool_size: Size of the database pool (max is 32)
         """
-        # try:
-        super().__init__(pool_size)
-        # except Exception as e:
-        #     logger.fatal(e)
+        try:
+            super().__init__(pool_size)
+        except Exception as e:
+            logger.fatal(e)
         logger.info("Connected to the database")
 
     def has_seen_jar_url(self, url: str) -> bool:
@@ -96,9 +107,12 @@ class GravenDatabase(MySQLDatabase):
         :param url: URL to check
         :return: True if seen, false otherwise
         """
-        return len(self._select(Table.JAR,
-                                where_equals={'uri': url.removeprefix(MAVEN_CENTRAL_ROOT)},
-                                fetch_all=False)) != 0
+        return len(
+            self._select(
+                Table.JAR,
+                where_equals={
+                    'uri': url.removeprefix(MAVEN_CENTRAL_ROOT)},
+                fetch_all=False)) != 0
 
     def has_seen_cve(self, cve_id: str) -> bool:
         """
@@ -127,7 +141,7 @@ class GravenDatabase(MySQLDatabase):
         :return: CVE ID to query, None if none available
         """
         row = self._select(Table.CVE, columns=['cve_id'], where_equals={'status_code': None}, fetch_all=False)
-        if not len(row):
+        if not row:
             return None
         cve_id = row[0][0]
         self._upsert(Table.CVE, {'cve_id': cve_id}, {'status_code': 2})  # mark as in progress
@@ -159,7 +173,8 @@ class GravenDatabase(MySQLDatabase):
 
         with self._engine.begin() as conn:
             # get jar to process
-            result = conn.execute(text("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1;")).fetchone()
+            result = conn.execute(
+                text("SELECT uri, jar_id FROM jar WHERE status IS NULL LIMIT 1;")).fetchone()
             # return none if no jobs
             if not result:
                 return None
@@ -177,7 +192,10 @@ class GravenDatabase(MySQLDatabase):
         :param domain_url: URL to check
         :return: Crawler status
         """
-        domains = self._select(Table.DOMAIN, ['crawl_start', 'crawl_end'], where_equals={'url': domain_url})
+        domains = self._select(
+            Table.DOMAIN, [
+                'crawl_start', 'crawl_end'], where_equals={
+                'url': domain_url})
         # domain has never been explored
         if len(domains) == 0:
             return CrawlStatus.DOES_NOT_EXIST
@@ -186,11 +204,10 @@ class GravenDatabase(MySQLDatabase):
         if domain[0] and domain[1]:
             return CrawlStatus.COMPLETED
         # elif started and not ended - then in progress
-        elif domain[0] and not domain[1]:
+        if domain[0] and not domain[1]:
             return CrawlStatus.IN_PROGRESS
-        # not started and not ended - must be not started
-        else:
-            return CrawlStatus.NOT_STARTED
+        # else not started and not ended - must be not started
+        return CrawlStatus.NOT_STARTED
 
     def init_domain(self, run_id: int, domain_url: str) -> None:
         """
@@ -209,7 +226,9 @@ class GravenDatabase(MySQLDatabase):
         :param crawl_start: Timestamp of when crawl started
         """
         # reset end time
-        self._upsert(Table.DOMAIN, {'url': domain_url}, {'crawl_start': crawl_start, 'crawl_end': None})
+        self._upsert(Table.DOMAIN,
+                     {'url': domain_url},
+                     {'crawl_start': crawl_start, 'crawl_end': None})
 
     def complete_domain(self, run_id: int, domain_url: str, crawl_end: datetime) -> None:
         """
@@ -222,6 +241,12 @@ class GravenDatabase(MySQLDatabase):
         self._upsert(Table.DOMAIN, {'url': domain_url, 'run_id': run_id}, {'crawl_end': crawl_end})
 
     def update_jar_status(self, jar_id: str, status: Stage | FinalStatus | None) -> None:
+        """
+        Update the status of the jar in the graven pipeline
+
+        :param jar_id: ID of jar
+        :param status: Stage or FinalStatus of jar
+        """
         updates = {'status': status.value if status else None}
         # add process status if done
         if status == FinalStatus.DONE:
@@ -288,7 +313,9 @@ class GravenDatabase(MySQLDatabase):
         :param jar_id: id of the jar being scanned
         :param last_grype_scan: timestamp string of the last scan
         """
-        self._upsert(Table.JAR, {'jar_id': jar_id}, {'run_id': run_id, 'last_grype_scan': last_grype_scan})
+        self._upsert(Table.JAR,
+                     {'jar_id': jar_id},
+                     {'run_id': run_id, 'last_grype_scan': last_grype_scan})
 
     def upsert_sbom_blob(self, run_id: int, jar_id: str, sbom_blob: bytes) -> None:
         """
@@ -323,20 +350,6 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(JoinTable.JAR__CVE, {'jar_id': jar_id, 'cve_id': cve_id}, {'run_id': run_id})
 
-    def associate_sbom_and_artifact(self, run_id: int, jar_id: str, purl: str, has_pom: bool) -> None:
-        """
-        Save an sbom and artifact that it contains
-        Jar / SBOM and purl must exist in db prior
-
-        :param run_id: ID of the jar and scan was done in
-        :param jar_id: id of jar the sbom is of
-        :param purl: purl of the artifact
-        :param has_pom: whether or not the artifact contains a pom file
-        """
-        self._upsert(JoinTable.SBOM__ARTIFACT,
-                     {'jar_id': jar_id, 'purl': purl},
-                     {'run_id': run_id, 'has_pom': 1 if has_pom else 0})
-
     def log_run_start(self, syft_version: str, grype_version: str, grype_db_source: str) -> int:
         """
         Log a start of a run
@@ -347,8 +360,8 @@ class GravenDatabase(MySQLDatabase):
         :return: run id
         """
         run_id = self._insert(Table.RUN_LOG, {
-            'syft_version': syft_version,
-            'grype_version': grype_version,
+            'syft_version': syft_version if syft_version else 'N/A',
+            'grype_version': grype_version if grype_version else 'N/A',
             'grype_db_source': grype_db_source})
         return run_id
 
@@ -363,7 +376,11 @@ class GravenDatabase(MySQLDatabase):
                      {'end': datetime.now(timezone.utc), 'exit_code': exit_code},
                      {'run_id': run_id})
 
-    def log_error(self, run_id: int, stage: Stage, error: Exception, jar_id: str = None,
+    def log_error(self,
+                  run_id: int,
+                  stage: Stage,
+                  error: Exception,
+                  jar_id: str = None,
                   details: Dict[Any, Any] = None) -> None:
         """
         Log an error in the database
@@ -387,7 +404,9 @@ class GravenDatabase(MySQLDatabase):
             inserts.update({'details': json.dumps(details)})
         self._insert(Table.ERROR_LOG, inserts)
 
-    def export_sboms(self, export_directory: str, compression_method: Literal['zip', 'tar.gz']) -> None:
+    def export_sboms(self,
+                     export_directory: str,
+                     compression_method: Literal['zip', 'tar.gz']) -> None:
         """
         Export SBOMs stored in database to file
 
@@ -400,12 +419,14 @@ class GravenDatabase(MySQLDatabase):
         out_file_path = f"{export_directory}{os.sep}graven_sbom_dump.{compression_method}"
         # determine write type based on extension
         if compression_method == 'zip':
-            open_method = zipfile.ZipFile(out_file_path, 'w', compression=zipfile.ZIP_DEFLATED)
+            open_method = zipfile.ZipFile(
+                out_file_path, 'w', compression=zipfile.ZIP_DEFLATED)
         else:
             open_method = tarfile.open(out_file_path, 'w:gz')
         # decompress and write to file
         with open_method as export:
-            for jar_id, sbom_bytes in logger.get_data_queue(sboms, "Exporting SBOMs", "SBOM"):
+            for jar_id, sbom_bytes in logger.get_data_queue(
+                    sboms, "Exporting SBOMs", "SBOM"):
                 try:
                     # decompress
                     decompressed = dctx.decompress(sbom_bytes)
@@ -424,4 +445,4 @@ class GravenDatabase(MySQLDatabase):
                         export.addfile(tarinfo, fileobj=json_io)
                     logger.debug_msg(f"Exported {jar_id}")
                 except Exception as e:
-                    logger.error_exp(e, f"Failed to export SBOM for {jar_id}")
+                    logger.error_msg(f"Failed to export SBOM for {jar_id}", e)

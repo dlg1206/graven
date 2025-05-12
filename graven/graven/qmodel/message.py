@@ -1,8 +1,3 @@
-from threading import Semaphore
-
-from qmodel.file import JarFile, GrypeFile, SyftFile
-from shared.cache_manager import CacheManager
-
 """
 File: message.py
 
@@ -11,8 +6,17 @@ Description: Collection of standardized messages for queues
 @author Derek Garcia
 """
 
+from threading import Semaphore
+
+from qmodel.file import JarFile, GrypeFile, SyftFile
+from shared.cache_manager import CacheManager
+
 
 class Message:
+    """
+    Message that can be passed between workers
+    """
+
     def __init__(self, jar_url: str, jar_uid: str):
         """
         Generator metadata object with details about the downloaded jar

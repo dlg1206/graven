@@ -1,3 +1,11 @@
+"""
+File: cli_parser.py
+
+Description: Parser for CLI arguments
+
+@author Derek Garcia
+"""
+
 import csv
 from argparse import ArgumentParser, Namespace
 from typing import List
@@ -10,31 +18,26 @@ from worker.crawler import DEFAULT_MAX_CRAWLER_REQUESTS
 from worker.downloader import DEFAULT_MAX_DOWNLOADER_REQUESTS
 from worker.pipeline_builder import DEFAULT_MAX_CPU_THREADS
 
-"""
-File: cli_parser.py
-
-Description: Parser for CLI arguments
-
-@author Derek Garcia
-"""
-
 
 def _add_input_options(parser: ArgumentParser) -> None:
     """
     Add input options to the given parser
     """
     # start url
-    input_group = parser.add_argument_group(title="Input Options", description="Only one flag is permitted")
+    input_group = parser.add_argument_group(
+        title="Input Options",
+        description="Only one flag is permitted")
     input_flags = input_group.add_mutually_exclusive_group(required=True)
     input_flags.add_argument("--root-url",
                              metavar="<starting url>",
                              type=str,
                              help="Root URL to start crawler at")
-    input_flags.add_argument("--seed-urls-csv",
-                             metavar="<path to csv>",
-                             type=str,
-                             help="CSV file of root urls to restart the crawler "
-                                  "at once the current root url is exhausted")
+    input_flags.add_argument(
+        "--seed-urls-csv",
+        metavar="<path to csv>",
+        type=str,
+        help="CSV file of root urls to restart the crawler "
+             "at once the current root url is exhausted")
 
 
 def _add_crawl_options(parser: ArgumentParser) -> None:
@@ -45,23 +48,27 @@ def _add_crawl_options(parser: ArgumentParser) -> None:
     crawler_group.add_argument("--max-concurrent-crawl-requests",
                                metavar="<number of requests>",
                                type=int,
-                               help=f"Max number of requests crawler can make at once "
+                               help="Max number of requests crawler can make at once "
                                     f"(Default: {DEFAULT_MAX_CRAWLER_REQUESTS})",
                                default=DEFAULT_MAX_CRAWLER_REQUESTS)
 
-    crawler_group.add_argument("--update-domain",
-                               action="store_true",
-                               help="Update domains that have already been crawled. "
-                                    "Useful for ensuring no jars were missed in a domain")
+    crawler_group.add_argument(
+        "--update-domain",
+        action="store_true",
+        help="Update domains that have already been crawled. "
+             "Useful for ensuring no jars were missed in a domain")
 
-    crawler_group.add_argument("--update-jar",
-                               action="store_true",
-                               help="Update jars that have already been crawled")
+    crawler_group.add_argument(
+        "--update-jar",
+        action="store_true",
+        help="Update jars that have already been crawled")
 
-    crawler_group.add_argument("-u", "--update",
-                               action="store_true",
-                               help="Update domains AND jars that have already been crawled. "
-                                    "Supersedes --update-* flags")
+    crawler_group.add_argument(
+        "-u",
+        "--update",
+        action="store_true",
+        help="Update domains AND jars that have already been crawled. "
+             "Supersedes --update-* flags")
 
 
 def _add_process_options(parser: ArgumentParser) -> None:
@@ -72,52 +79,61 @@ def _add_process_options(parser: ArgumentParser) -> None:
     downloader_group.add_argument("--max-concurrent-download-requests",
                                   metavar="<number of requests>",
                                   type=int,
-                                  help=f"Max number of downloads downloader can make at once "
+                                  help="Max number of downloads downloader can make at once "
                                        f"(Default: {DEFAULT_MAX_DOWNLOADER_REQUESTS})",
                                   default=DEFAULT_MAX_DOWNLOADER_REQUESTS)
-    downloader_group.add_argument("--download-cache-size",
-                                  metavar="<cache size in MB>",
-                                  type=float,
-                                  help=f"Limit of the number of jars to be saved at one time. "
-                                       f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
+    downloader_group.add_argument(
+        "--download-cache-size",
+        metavar="<cache size in MB>",
+        type=float,
+        help="Limit of the number of jars to be saved at one time. "
+             f"Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
-    downloader_group.add_argument("--jar-limit",
-                                  metavar="<max jar count>",
-                                  type=int,
-                                  help="Limit the number of jars downloaded at once")
+    downloader_group.add_argument(
+        "--jar-limit",
+        metavar="<max jar count>",
+        type=int,
+        help="Limit the number of jars downloaded at once")
 
     generator_group = parser.add_argument_group("Generator Options")
-    generator_group.add_argument("--syft-path",
-                                 metavar="<absolute path to syft binary>",
-                                 type=str,
-                                 help=f"Path to syft binary to use. By default, assumes syft is already on the PATH",
-                                 default=SYFT_BIN)
-    generator_group.add_argument("--syft-cache-size",
-                                 metavar="<cache size in MB>",
-                                 type=float,
-                                 help=f"Limit of the number of grype files to be saved at one time. "
-                                      f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
-    generator_group.add_argument("--disable-syft",
-                                 action="store_true",
-                                 help="Disable SBOM generation and scan jars directly")
+    generator_group.add_argument(
+        "--syft-path",
+        metavar="<absolute path to syft binary>",
+        type=str,
+        help="Path to syft binary to use. By default, assumes syft is already on the PATH",
+        default=SYFT_BIN)
+    generator_group.add_argument(
+        "--syft-cache-size",
+        metavar="<cache size in MB>",
+        type=float,
+        help="Limit of the number of grype files to be saved at one time. "
+             f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
+    generator_group.add_argument(
+        "--disable-syft",
+        action="store_true",
+        help="Disable SBOM generation and scan jars directly")
 
     scanner_group = parser.add_argument_group("Scanner Options")
-    scanner_group.add_argument("--grype-path",
-                               metavar="<absolute path to grype binary>",
-                               type=str,
-                               help=f"Path to Grype binary to use. By default, assumes grype is already on the PATH",
-                               default=GRYPE_BIN)
+    scanner_group.add_argument(
+        "--grype-path",
+        metavar="<absolute path to grype binary>",
+        type=str,
+        help="Path to Grype binary to use. "
+             "By default, assumes grype is already on the PATH",
+        default=GRYPE_BIN)
 
-    scanner_group.add_argument("--grype-db-source",
-                               metavar="<url of grype database to use>",
-                               type=str,
-                               help=f"URL of specific grype database to use. To see the full list, run 'grype db list'")
+    scanner_group.add_argument(
+        "--grype-db-source",
+        metavar="<url of grype database to use>",
+        type=str,
+        help="URL of specific grype database to use. To see the full list, run 'grype db list'")
 
-    scanner_group.add_argument("--grype-cache-size",
-                               metavar="<cache size in MB>",
-                               type=float,
-                               help=f"Limit of the number of grype files to be saved at one time. "
-                                    f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
+    scanner_group.add_argument(
+        "--grype-cache-size",
+        metavar="<cache size in MB>",
+        type=float,
+        help="Limit of the number of grype files to be saved at one time. "
+             f"(Default: {bytes_to_mb(DEFAULT_MAX_CAPACITY)} MB)")
 
 
 def _add_misc_options(parser: ArgumentParser,
@@ -142,14 +158,16 @@ def _add_misc_options(parser: ArgumentParser,
                                 default=DEFAULT_MAX_CPU_THREADS)
 
     if add_disable_vuln:
-        misc_group.add_argument("--disable-update-vuln",
-                                action='store_true',
-                                help="Disable real-time queries for CVE and CWE details")
+        misc_group.add_argument(
+            "--disable-update-vuln",
+            action='store_true',
+            help="Disable real-time queries for CVE and CWE details")
 
     if add_enable_vuln:
-        misc_group.add_argument("--enable-update-vuln",
-                                action='store_true',
-                                help="Enable real-time queries for CVE and CWE details")
+        misc_group.add_argument(
+            "--enable-update-vuln",
+            action='store_true',
+            help="Enable real-time queries for CVE and CWE details")
 
 
 def create_parser() -> ArgumentParser:
@@ -160,13 +178,17 @@ def create_parser() -> ArgumentParser:
     """
     parser = ArgumentParser(
         description="Recursive and optimized crawler for scraping the Maven Central Repository",
-        prog="graven"
-    )
+        prog="graven")
     # logging flags
-    parser.add_argument("-l", "--log-level",
+    parser.add_argument("-l",
+                        "--log-level",
                         metavar="<log level>",
-                        choices=[Level.INFO.name, Level.DEBUG.name, Level.ERROR.name],
-                        help=f"Set log level (Default: INFO) ({[Level.INFO.name, Level.DEBUG.name, Level.ERROR.name]})",
+                        choices=[Level.INFO.name,
+                                 Level.DEBUG.name,
+                                 Level.ERROR.name],
+                        help=f"Set log level (Default: INFO) ({[Level.INFO.name,
+                                                                Level.DEBUG.name,
+                                                                Level.ERROR.name]})",
                         default=Level.INFO.name)
     parser.add_argument("-s", "--silent",
                         action="store_true",
@@ -192,18 +214,21 @@ def create_parser() -> ArgumentParser:
 
     # process
     process_help = "Process jars stored in the database"
-    process_parser = subparsers.add_parser("process", help=process_help, description=process_help)
+    process_parser = subparsers.add_parser(
+        "process", help=process_help, description=process_help)
     _add_process_options(process_parser)
     _add_misc_options(process_parser, add_disable_vuln=False, add_enable_vuln=True)
 
     # vuln
     vuln_help = "Update CVE and CWE data"
-    subparsers.add_parser("update-vuln", help=vuln_help,
+    subparsers.add_parser("update-vuln",
+                          help=vuln_help,
                           description=f"{vuln_help}. Will use 'NVD_API_KEY' env variable if available")
 
     # export
     export_help = "Export SBOMs in the database to file"
-    export_parser = subparsers.add_parser("export", help=export_help, description=export_help)
+    export_parser = subparsers.add_parser(
+        "export", help=export_help, description=export_help)
     export_parser.add_argument("-d", "--directory",
                                type=str,
                                help="Directory to save dump to",
@@ -226,7 +251,7 @@ def parse_input_args_for_seed_urls(args: Namespace) -> List[str]:
     :return: List of urls to parse
     """
     if args.seed_urls_csv:
-        with open(args.seed_urls_csv) as file:
+        with open(args.seed_urls_csv, encoding='utf-8') as file:
             csv_reader = csv.reader(file)
             return [row[0] for row in csv_reader]
 

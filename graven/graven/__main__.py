@@ -1,3 +1,11 @@
+"""
+File: __main__.py
+Description: Main entrypoint for graven operations
+
+@author Derek Garcia
+"""
+
+import sys
 from argparse import Namespace
 
 from dotenv import load_dotenv
@@ -7,13 +15,6 @@ from shared.cache_manager import DEFAULT_MAX_CAPACITY, mb_to_bytes
 from shared.cli_parser import create_parser, parse_input_args_for_seed_urls
 from shared.logger import Level, logger
 from worker.pipeline_builder import PipelineBuilder
-
-"""
-File: __main__.py
-Description: Main entrypoint for graven operations
-
-@author Derek Garcia
-"""
 
 
 def _execute(args: Namespace) -> None:
@@ -26,15 +27,17 @@ def _execute(args: Namespace) -> None:
     if args.command == 'export':
         db = GravenDatabase()
         db.export_sboms(args.directory, args.compression_method)
-        exit(0)
+        sys.exit(0)
 
     # else run graven
     # init pipeline
     pipline_builder = PipelineBuilder()
     if hasattr(args, 'max_concurrent_crawl_requests'):
-        pipline_builder.set_crawler_thread_limit(args.max_concurrent_crawl_requests)
+        pipline_builder.set_crawler_thread_limit(
+            args.max_concurrent_crawl_requests)
     if hasattr(args, 'max_concurrent_download_requests'):
-        pipline_builder.set_downloader_thread_limit(args.max_concurrent_download_requests)
+        pipline_builder.set_downloader_thread_limit(
+            args.max_concurrent_download_requests)
     if hasattr(args, 'max_cpu_threads'):
         pipline_builder.set_cpu_thread_limit(args.max_cpu_threads)
 
@@ -49,12 +52,15 @@ def _execute(args: Namespace) -> None:
         seed_urls = parse_input_args_for_seed_urls(args)
         update_domain = args.update or args.update_domain
         update_jar = args.update or args.update_jar
-        pipline_builder.set_crawler_worker(seed_urls, update_domain, update_jar)
+        pipline_builder.set_crawler_worker(
+            seed_urls, update_domain, update_jar)
 
     # Init process
     if is_run or is_process:
-        download_cache = mb_to_bytes(args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
-        grype_cache = mb_to_bytes(args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
+        download_cache = mb_to_bytes(
+            args.download_cache_size) if args.download_cache_size else DEFAULT_MAX_CAPACITY
+        grype_cache = mb_to_bytes(
+            args.grype_cache_size) if args.grype_cache_size else DEFAULT_MAX_CAPACITY
         jar_limit = getattr(args, 'jar_limit', None)
 
         pipline_builder.set_process_workers(
@@ -67,19 +73,19 @@ def _execute(args: Namespace) -> None:
 
         # Add syft worker if not disabled
         if not getattr(args, 'disable_syft', False):
-            syft_cache = mb_to_bytes(args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
+            syft_cache = mb_to_bytes(
+                args.syft_cache_size) if args.syft_cache_size else DEFAULT_MAX_CAPACITY
             pipline_builder.set_generator_worker(syft_cache, args.syft_path)
 
     # Init vuln fetch worker
-    vuln_enabled = (is_run and not getattr(args, 'disable_update_vuln', False)) or getattr(args, 'enable_update_vuln',
-                                                                                           False) or is_update_vuln
-
-    if vuln_enabled:
+    use_vuln_run = is_run and not getattr(args, 'disable_update_vuln', False)
+    enable_vuln = getattr(args, 'enable_update_vuln', False)
+    if is_update_vuln or use_vuln_run or enable_vuln:
         pipline_builder.set_vuln_worker()
 
     # start job
     exit_code = pipline_builder.run_workers()
-    exit(exit_code)
+    sys.exit(exit_code)
 
 
 def main() -> None:
@@ -95,10 +101,7 @@ def main() -> None:
         # else update if option
         logger.set_log_level(args.log_level)
 
-    try:
-        _execute(args)
-    except Exception as e:
-        logger.fatal(e)
+    _execute(args)
 
 
 if __name__ == "__main__":
