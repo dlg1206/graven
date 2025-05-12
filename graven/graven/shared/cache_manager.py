@@ -4,6 +4,7 @@ Description:
 
 @author Derek Garcia
 """
+import math
 from contextlib import contextmanager
 from threading import Lock
 
@@ -64,6 +65,7 @@ class CacheManager:
         :param file_size: Size of space to reserve
         :returns: True if space reserved, false otherwise
         """
+        file_size = math.ceil(file_size)
         # ensure doesn't exceed limit
         if file_size > self._max_capacity:
             raise ExceedsCacheLimitError(file_uid, file_size, file_size - self._max_capacity)
@@ -73,7 +75,7 @@ class CacheManager:
             if space_available:
                 self._index[file_uid] = file_size
                 self._current_capacity += file_size
-                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} | space: {self._current_capacity}")
+                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} | available space: {self._current_capacity}")
             return space_available
 
     def update_space(self, file_uid: str, file_size: int) -> None:
@@ -83,6 +85,7 @@ class CacheManager:
         :param file_uid: ID of file to reference
         :param file_size: Size of space to update
         """
+        file_size = math.ceil(file_size)
         # only update if size mismatch
         if self._index[file_uid] == file_size:
             return
@@ -94,7 +97,7 @@ class CacheManager:
             # set with corrected estimate
             self._index[file_uid] = file_size
             self._current_capacity += file_size
-            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} | space: {self._current_capacity}")
+            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} | available space: {self._current_capacity}")
 
     def free_space(self, file_uid: str) -> None:
         """
@@ -104,7 +107,7 @@ class CacheManager:
         with self._open_critical_section():
             free = self._index.pop(file_uid, 0)
             self._current_capacity -= free
-            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} | space: {self._current_capacity}")
+            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} | available space: {self._current_capacity}")
 
 
 def bytes_to_mb(size: int) -> float:

@@ -19,7 +19,8 @@ from requests import RequestException
 
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
-from shared.cache_manager import CacheManager, DEFAULT_MAX_CAPACITY, ExceedsCacheLimitError, RESERVE_BACKOFF_TIMEOUT
+from shared.cache_manager import CacheManager, DEFAULT_MAX_CAPACITY, ExceedsCacheLimitError, RESERVE_BACKOFF_TIMEOUT, \
+    BYTES_PER_MB
 from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
@@ -28,6 +29,9 @@ RETRY_SLEEP = 10
 JAR_LIMIT_TIMEOUT = 30
 # limit to match cpus since binaries should be capped at thread count
 DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()
+# Max file size in bytes
+MAX_WRITE_SIZE = 2 * BYTES_PER_MB  # 2 MB
+CHUNK_SIZE = int(0.064 * BYTES_PER_MB)  # 64 KB
 
 
 class DownloaderWorker(Worker, ABC):
@@ -77,10 +81,19 @@ class DownloaderWorker(Worker, ABC):
         try:
             # init jar
             timer = Timer(True)
-            with requests.get(message.jar_url, allow_redirects=True, timeout=999) as response:
+            response = requests.head(message.jar_url, allow_redirects=True, timeout=999)
+            use_stream = int(response.headers.get('content-length', 0)) > MAX_WRITE_SIZE
+            with requests.get(message.jar_url, allow_redirects=True, timeout=999, stream=use_stream) as response:
                 response.raise_for_status()
                 with open(message.jar_file.file_path, 'wb') as file:
-                    file.write(response.content)
+                    # chunk if > 2 MB
+                    if use_stream:
+                        for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+                            if chunk:
+                                file.write(chunk)
+                    # else just write
+                    else:
+                        file.write(response.content)
             # log success
             message.jar_file.open()
             logger.info(f"Downloaded in {timer.format_time()}s | {message.jar_url}")
