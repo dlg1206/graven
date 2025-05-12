@@ -5,11 +5,11 @@ Description: Use syft to generate SBOMs
 
 @author Derek Garcia
 """
-
 import tempfile
 import time
 from abc import ABC
 from concurrent.futures import Future
+from subprocess import TimeoutExpired
 from threading import Event
 from typing import Any
 
@@ -67,13 +67,13 @@ class GeneratorWorker(Worker, ABC):
         try:
             logger.debug_msg(f"Queuing syft | {message.jar_id}")
             self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
-            # remove jar since not needed
-            message.jar_file.close()
-            # report success
-            message.syft_file.open()
-            self._sboms_generated += 1
-            logger.info(f"Generated syft sbom | {message.syft_file.file_name}")
 
+        except TimeoutExpired as e:
+            logger.error_msg(f"Exceeded timeout, retrying later | {message.jar_id}", e)
+            # todo - remove, keeping for testing
+            self._database.log_error(self._run_id, Stage.GENERATOR, e,jar_id=message.jar_id, details={'stderr': e.stderr})
+            self._consumer_queue.put(message)
+            return
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
             logger.error_exp(e)
@@ -92,6 +92,12 @@ class GeneratorWorker(Worker, ABC):
             # mark as done
             self._consumer_queue.task_done()
 
+        # remove jar since not needed
+        message.jar_file.close()
+        # report success
+        message.syft_file.open()
+        self._sboms_generated += 1
+        logger.info(f"Generated syft sbom | {message.syft_file.file_name}")
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.warn(f"[STOP ORDER RECEIVED] | SBOM generated but not scanning | {message.jar_url}")

@@ -22,6 +22,8 @@ from shared.timer import Timer
 GRYPE_BIN = "grype.exe" if platform.system() == "Windows" else "grype"
 DB_SOURCE_FILE = "db_source"
 
+GRYPE_TIMEOUT = 120  # 2 minute timeout
+
 
 class GrypeScanFailure(RuntimeError):
     """
@@ -61,11 +63,7 @@ class Grype:
     Grype scanner
     """
 
-    def __init__(
-            self,
-            bin_path: str = GRYPE_BIN,
-            check_for_updates: bool = True,
-            db_source_url: str = None):
+    def __init__(self, bin_path: str = GRYPE_BIN, check_for_updates: bool = True, db_source_url: str = None):
         """
         Create new grype interface
 
@@ -212,13 +210,15 @@ class Grype:
         :param file_path: Path to jar or sbom to scan
         :param out_path: Path to save JSON result to
         :raises GrypeScanFailure: If grype fails to scan
+        :raises TimeoutExpired: If the grype scan exceeds max timeout
         :return: Return code of the operation
         """
         timer = Timer(True)
         result = subprocess.run([self._bin_path, "--by-cve", "-o", f"json={out_path}", file_path],
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE,
-                                check=False)
+                                check=False,
+                                timeout=GRYPE_TIMEOUT)
         # non-zero error
         if result.returncode:
             raise GrypeScanFailure(file_path, result.returncode, result.stderr.decode())

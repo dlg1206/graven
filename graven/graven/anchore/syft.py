@@ -13,6 +13,7 @@ from shared.logger import logger
 from shared.timer import Timer
 
 SYFT_BIN = "syft.exe" if platform.system() == "Windows" else "syft"
+SYFT_TIMEOUT = 60  # 1 minute timeout
 
 
 class SyftScanFailure(RuntimeError):
@@ -71,13 +72,15 @@ class Syft:
         :param jar_path: Path to jar to scan
         :param out_path: Path to save JSON result to
         :raises SyftScanFailure: If syft fails to scan
+        :raises TimeoutExpired: If the syft scan exceeds max timeout
         :return: Return code of the operation
         """
         timer = Timer(True)
         result = subprocess.run([self._bin_path, "-o", f"json={out_path}", "--from", "local-file", jar_path],
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE,
-                                check=False)
+                                check=False,
+                                timeout=SYFT_TIMEOUT)
         # non-zero, non-one error
         if result.returncode:
             raise SyftScanFailure(

@@ -10,6 +10,7 @@ import tempfile
 import time
 from abc import ABC
 from concurrent.futures import Future
+from subprocess import TimeoutExpired
 from threading import Event
 from typing import Any
 
@@ -75,24 +76,14 @@ class ScannerWorker(Worker, ABC):
                 file_path = message.jar_file.file_path
 
             self._grype.scan(file_path, message.grype_file.file_path)
-            # report success
-            message.grype_file.open()
-            logger.info(f"Generated grype report | {message.grype_file.file_name}")
 
-            # update counts
-            if message.syft_file and message.syft_file.is_open:
-                self._sboms_scanned += 1
-            else:
-                self._jars_scanned += 1
-            # skip if stop order triggered
-            if self._master_terminate_flag.is_set():
-                logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
-                self._handle_shutdown(message)
-            else:
-                self._database.update_jar_status(
-                    message.jar_id, Stage.TRN_SCN_ANL)
-                self._producer_queue.put(message)
-
+        except TimeoutExpired as e:
+            logger.error_msg(f"Exceeded timeout, retrying later | {message.jar_id}", e)
+            # todo - remove, keeping for testing
+            self._database.log_error(self._run_id, Stage.SCANNER, e,
+                                     jar_id=message.jar_id, details={'stderr': e.stderr})
+            self._consumer_queue.put(message)
+            return
         except (GrypeScanFailure, Exception) as e:
             message.close()
             logger.error_exp(e)
@@ -101,11 +92,30 @@ class ScannerWorker(Worker, ABC):
                 details = {'return_code': e.return_code, 'stderr': e.stderr}
             self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id, details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
+            return
         finally:
             # mark as done
             self._consumer_queue.task_done()
             # remove jar since finished
             message.jar_file.close()
+
+        # report success
+        message.grype_file.open()
+        logger.info(f"Generated grype report | {message.grype_file.file_name}")
+
+        # update counts
+        if message.syft_file and message.syft_file.is_open:
+            self._sboms_scanned += 1
+        else:
+            self._jars_scanned += 1
+        # skip if stop order triggered
+        if self._master_terminate_flag.is_set():
+            logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
+            self._handle_shutdown(message)
+        else:
+            self._database.update_jar_status(
+                message.jar_id, Stage.TRN_SCN_ANL)
+            self._producer_queue.put(message)
 
     def _handle_message(self, message: Message | str) -> Future | None:
         """
