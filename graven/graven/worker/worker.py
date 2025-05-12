@@ -161,12 +161,11 @@ class Worker(ABC):
         # log exit type
         if self._master_terminate_flag.is_set():
             logger.warn(f"{self._name} | Stop order received, exiting. . .")
-            concurrent.futures.wait(self._tasks, timeout=0)  # fail fast
         else:
             logger.warn(f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
-            concurrent.futures.wait(self._tasks)
-            logger.info(f"{self._name} | All tasks finished, exiting. . .")
-
+        # safe exit
+        concurrent.futures.wait(self._tasks)
+        logger.info(f"{self._name} | All tasks finished, exiting. . .")
         # poison queue to signal stop if has producer queue
         if self._producer_queue:
             logger.debug_msg(f"{self._name} | Signaled downstream to stop")

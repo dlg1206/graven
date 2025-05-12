@@ -222,7 +222,7 @@ class GravenDatabase(MySQLDatabase):
         self._upsert(Table.DOMAIN, {'url': domain_url, 'run_id': run_id}, {'crawl_end': crawl_end})
 
     def update_jar_status(self, jar_id: str, status: Stage | FinalStatus | None) -> None:
-        updates = {'status': status.value}
+        updates = {'status': status.value if status else None}
         # add process status if done
         if status == FinalStatus.DONE:
             updates['last_processed'] = datetime.now(timezone.utc)

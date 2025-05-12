@@ -54,23 +54,21 @@ class GeneratorWorker(Worker, ABC):
 
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
+            logger.warn(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
             self._handle_shutdown(message)
             return
         # else generate sbom
         self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         try:
             timer = Timer(True)
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Queuing syft | {message.jar_id}")
+            logger.debug_msg(f"Queuing syft | {message.jar_id}")
             self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             # remove jar since not needed
             message.jar_file.close()
             # report success
             message.syft_file.open()
             self._sboms_generated += 1
-            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                        f"Generated syft sbom in {timer.format_time()}s | {message.syft_file.file_name}")
+            logger.info(f"Generated syft sbom in {timer.format_time()}s | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
@@ -90,9 +88,14 @@ class GeneratorWorker(Worker, ABC):
             # mark as done
             self._consumer_queue.task_done()
 
-        # update pipeline
-        self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
-        self._producer_queue.put(message)
+        # skip if stop order triggered
+        if self._master_terminate_flag.is_set():
+            logger.warn(f"[STOP ORDER RECEIVED] | SBOM generated but not scanning | {message.jar_url}")
+            self._handle_shutdown(message)
+        else:
+            # send downstream
+            self._database.update_jar_status(message.jar_id, Stage.TRN_GEN_SCN)
+            self._producer_queue.put(message)
 
     def _handle_message(self, message: Message | str) -> Future | None:
         """

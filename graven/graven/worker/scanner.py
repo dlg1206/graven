@@ -54,15 +54,14 @@ class ScannerWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
+            logger.warn(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
             self._handle_shutdown(message)
             return
         # scan
         self._database.update_jar_status(message.jar_id, Stage.SCANNER)
         try:
             timer = Timer(True)
-            logger.debug_msg(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                             f"Queuing grype | {message.jar_id}")
+            logger.debug_msg(f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
             if message.syft_file and message.syft_file.is_open:
                 file_path = message.syft_file.file_path
@@ -72,17 +71,20 @@ class ScannerWorker(Worker, ABC):
             self._grype.scan(file_path, message.grype_file.file_path)
             # report success
             message.grype_file.open()
-            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                        f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
+            logger.info(f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
 
             # update counts
             if message.syft_file and message.syft_file.is_open:
                 self._sboms_scanned += 1
             else:
                 self._jars_scanned += 1
-            # update pipeline
-            self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
-            self._producer_queue.put(message)
+            # skip if stop order triggered
+            if self._master_terminate_flag.is_set():
+                logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
+                self._handle_shutdown(message)
+            else:
+                self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
+                self._producer_queue.put(message)
 
         except (GrypeScanFailure, Exception) as e:
             message.close()

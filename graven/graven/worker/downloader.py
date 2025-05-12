@@ -62,7 +62,7 @@ class DownloaderWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
+            logger.warn(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
             self._handle_shutdown(message)
             return
 
@@ -78,14 +78,19 @@ class DownloaderWorker(Worker, ABC):
                     file.write(response.content)
             # log success
             message.jar_file.open()
-            logger.info(f"{'[STOP ORDER RECEIVED] | ' if self._master_terminate_flag.is_set() else ''}"
-                        f"Downloaded in {timer.format_time()}s | {message.jar_url}")
+            logger.info(f"Downloaded in {timer.format_time()}s | {message.jar_url}")
             # update cache if needed
             self._cache_manager.update_space(message.jar_id, message.jar_file.get_file_size())
             self._downloaded_jars += 1
-            # send downstream
-            self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_ANCHORE)
-            self._producer_queue.put(message)
+
+            # skip if stop order triggered
+            if self._master_terminate_flag.is_set():
+                logger.warn(f"[STOP ORDER RECEIVED] | Downloaded but not processing | {message.jar_url}")
+                self._handle_shutdown(message)
+            else:
+                # send downstream
+                self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_ANCHORE)
+                self._producer_queue.put(message)
         except (RequestException, Exception) as e:
             logger.error_exp(e)
             details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
