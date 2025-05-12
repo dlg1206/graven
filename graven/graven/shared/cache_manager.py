@@ -75,7 +75,8 @@ class CacheManager:
             if space_available:
                 self._index[file_uid] = file_size
                 self._current_capacity += file_size
-                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} | available space: {self._current_capacity}")
+                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} "
+                                 f"| available space: {self._max_capacity - self._current_capacity}")
             return space_available
 
     def update_space(self, file_uid: str, file_size: int) -> None:
@@ -97,7 +98,8 @@ class CacheManager:
             # set with corrected estimate
             self._index[file_uid] = file_size
             self._current_capacity += file_size
-            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} | available space: {self._current_capacity}")
+            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} "
+                             f"| available space: {self._max_capacity - self._current_capacity}")
 
     def free_space(self, file_uid: str) -> None:
         """
@@ -107,7 +109,8 @@ class CacheManager:
         with self._open_critical_section():
             free = self._index.pop(file_uid, 0)
             self._current_capacity -= free
-            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} | available space: {self._current_capacity}")
+            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} "
+                             f"| available space: {self._max_capacity - self._current_capacity}")
 
 
 def bytes_to_mb(size: int) -> float:
