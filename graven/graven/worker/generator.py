@@ -65,7 +65,6 @@ class GeneratorWorker(Worker, ABC):
         # else generate sbom
         self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
         try:
-            timer = Timer(True)
             logger.debug_msg(f"Queuing syft | {message.jar_id}")
             self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             # remove jar since not needed
@@ -73,7 +72,7 @@ class GeneratorWorker(Worker, ABC):
             # report success
             message.syft_file.open()
             self._sboms_generated += 1
-            logger.info(f"Generated syft sbom in {timer.format_time()}s | {message.syft_file.file_name}")
+            logger.info(f"Generated syft sbom | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip

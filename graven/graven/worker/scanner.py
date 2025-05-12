@@ -67,7 +67,6 @@ class ScannerWorker(Worker, ABC):
         # scan
         self._database.update_jar_status(message.jar_id, Stage.SCANNER)
         try:
-            timer = Timer(True)
             logger.debug_msg(f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
             if message.syft_file and message.syft_file.is_open:
@@ -78,7 +77,7 @@ class ScannerWorker(Worker, ABC):
             self._grype.scan(file_path, message.grype_file.file_path)
             # report success
             message.grype_file.open()
-            logger.info(f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
+            logger.info(f"Generated grype report | {message.grype_file.file_name}")
 
             # update counts
             if message.syft_file and message.syft_file.is_open:

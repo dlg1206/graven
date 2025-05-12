@@ -68,7 +68,7 @@ For external connections, the database will be hosted at `localhost:3306`
 1. Build the graven image
 
 ```bash
-docker build -t graven:2.2.0 .
+docker build -t graven:2.2.1 .
 ```
 
 2. Run the container attached to the database network
@@ -77,7 +77,7 @@ docker build -t graven:2.2.0 .
 docker run --rm -it --env-file .env \
     -e MYSQL_HOST=mysql \
     -v grype_db:/home/graven/.cache/grype \
-    --network=graven_database_graven graven:2.2.0 run --root-url <start-url>
+    --network=graven_database_graven graven:2.2.1 run --root-url <start-url>
 ```
 
 - `--rm`: remove container when finished
@@ -98,7 +98,7 @@ docker run --rm -it --env-file .env \
     -e MYSQL_HOST=mysql \
     -v grype_db:/home/graven/.cache/grype \
     -v "<path-to-csv-dir>:/csv" \
-    --network=graven_database_graven graven:2.2.0 run --seed-urls-csv /csv/<your csv file>
+    --network=graven_database_graven graven:2.2.1 run --seed-urls-csv /csv/<your csv file>
 ```
 
 On first run, the grype database will take 1-3 minutes to initialize. If you want to setup the grype database before

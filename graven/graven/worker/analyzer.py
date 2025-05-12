@@ -50,14 +50,13 @@ class AnalyzerWorker(Worker, ABC):
         :param jar_id: Jar ID SBOM belongs to
         :param syft_file: Syft file metadata with path to sbom file
         """
-        timer = Timer(True)
         # create a new compressor each time, sharing leads to buffer overflow
         cctx = zstd.ZstdCompressor()
         with open(syft_file.file_path, 'rb') as f:
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.debug_msg(f"Compressed and saved SBOM in {timer.format_time()}s | {jar_id}")
+        logger.debug_msg(f"Compressed and saved SBOM | {jar_id}")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -67,7 +66,6 @@ class AnalyzerWorker(Worker, ABC):
         :param jar_id: Primary jar id
         :param grype_file: Metadata object with path to grype file
         """
-        timer = Timer(True)
         with open(grype_file.file_path, 'r') as f:
             grype_data = json.load(f)
 
@@ -97,7 +95,7 @@ class AnalyzerWorker(Worker, ABC):
             timezone.utc)
         self._database.upsert_jar_last_grype_scan(
             self._run_id, jar_id, last_scanned)
-        logger.debug_msg(f"Processed and saved grype report in {timer.format_time()}s | {jar_id}")
+        logger.debug_msg(f"Processed and saved grype report | {jar_id}")
 
     def _analyze_files(self, message: Message) -> None:
         """
