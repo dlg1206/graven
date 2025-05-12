@@ -52,7 +52,11 @@ class MySQLDatabase:
     # CRUD methods
     #
 
-    def _insert(self, table: TableEnum, inserts: Dict[str, Any], on_success_msg: str = None) -> int | None:
+    def _insert(self,
+                table: TableEnum,
+                inserts: Dict[str,
+                              Any],
+                on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
 
@@ -78,14 +82,19 @@ class MySQLDatabase:
                 return result.lastrowid
         except IntegrityError as ie:
             # duplicate entry
-            # logger.debug_msg(f"{ie.errno} | {table.value} | ({', '.join(values)})") # disabled b/c annoying
+            # logger.debug_msg(f"{ie.errno} | {table.value} | ({',
+            # '.join(values)})") # disabled b/c annoying
             pass
         except OperationalError as oe:
             # failed to insert
             logger.error_exp(oe)
             return None
 
-    def _select(self, table: TableEnum, columns: List[str] = None, where_equals: Dict[str, Any] = None,
+    def _select(self,
+                table: TableEnum,
+                columns: List[str] = None,
+                where_equals: Dict[str,
+                                   Any] = None,
                 fetch_all: bool = True) -> List[Tuple[Any]]:
         """
         Generic select from the database
@@ -96,7 +105,8 @@ class MySQLDatabase:
         :param fetch_all: Fetch all rows, fetch one if false. Useful if checking to table contains value (Default: True)
         """
         # build SQL
-        columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
+        columns_names = f"{
+            ', '.join(columns)}" if columns else '*'  # c1, ..., cN
         sql = f"SELECT {columns_names} FROM {table.value}"
         # add where clauses if given
         if where_equals:
@@ -111,17 +121,25 @@ class MySQLDatabase:
 
         # connect is simple
         with self._engine.connect() as conn:
-            result = conn.execute(text(sql), where_equals if where_equals else {})
+            result = conn.execute(
+                text(sql), where_equals if where_equals else {})
             if fetch_all:
                 rows = result.fetchall()
                 # convert to tuples if response, else return nothing
                 return [tuple(row) for row in rows] if rows else []
             else:
                 row = result.fetchone()
-                return [row] if row else []  # fetch_one returns tuple, convert to list
+                # fetch_one returns tuple, convert to list
+                return [row] if row else []
 
-    def _update(self, table: TableEnum, updates: Dict[str, Any], where_equals: Dict[str, Any] = None,
-                on_success: str = None, amend: bool = False) -> bool:
+    def _update(self,
+                table: TableEnum,
+                updates: Dict[str,
+                              Any],
+                where_equals: Dict[str,
+                                   Any] = None,
+                on_success: str = None,
+                amend: bool = False) -> bool:
         """
         Generic update from the database
 
@@ -134,18 +152,22 @@ class MySQLDatabase:
         """
         # build SQL
         if amend:
-            set_clause = ', '.join(f"{col} = {col} || :set_{col}" for col in updates.keys())
+            set_clause = ', '.join(
+                f"{col} = {col} || :set_{col}" for col in updates.keys())
         else:
-            set_clause = ', '.join(f"{col} = :set_{col}" for col in updates.keys())
+            set_clause = ', '.join(
+                f"{col} = :set_{col}" for col in updates.keys())
 
         sql = f"UPDATE {table.value} SET {set_clause}"
         params = {f"set_{col}": val for col, val in updates.items()}
 
         # add where clauses if given
         if where_equals:
-            where_clause = ' AND '.join(f"{col} = :where_{col}" for col in where_equals.keys())
+            where_clause = ' AND '.join(
+                f"{col} = :where_{col}" for col in where_equals.keys())
             sql += f" WHERE {where_clause}"
-            params.update({f"where_{col}": val for col, val in where_equals.items()})
+            params.update({f"where_{col}": val for col,
+                          val in where_equals.items()})
         # execute
         try:
             with self._engine.begin() as conn:
@@ -160,7 +182,12 @@ class MySQLDatabase:
             logger.error_exp(oe)
             return False
 
-    def _upsert(self, table: TableEnum, primary_keys: Dict[str, Any], updates: Dict[str, Any],
+    def _upsert(self,
+                table: TableEnum,
+                primary_keys: Dict[str,
+                                   Any],
+                updates: Dict[str,
+                              Any],
                 print_on_success: bool = False) -> None:
         """
         Generic upsert to the database
@@ -174,11 +201,16 @@ class MySQLDatabase:
         msg = None
         if print_on_success:
             msg = ", ".join([f"{k} '{v}'" for k, v in primary_keys.items()])
-        updated = self._update(table, updates,
-                               where_equals=primary_keys,
-                               on_success=f"Updated {msg}" if print_on_success else None,
-                               amend=False)
+        updated = self._update(
+            table,
+            updates,
+            where_equals=primary_keys,
+            on_success=f"Updated {msg}" if print_on_success else None,
+            amend=False)
         if not updated:
             # if fail, insert
             updates.update(primary_keys)
-            self._insert(table, updates, on_success_msg=f"Inserted {msg}" if print_on_success else None)
+            self._insert(
+                table,
+                updates,
+                on_success_msg=f"Inserted {msg}" if print_on_success else None)

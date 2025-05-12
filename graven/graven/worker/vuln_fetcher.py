@@ -106,7 +106,9 @@ class VulnFetcherWorker(Worker, ABC):
         time.sleep(self._sleep)
         # use key if available
         if self._api_key_available:
-            r = requests.get(nvd_url, headers={"apiKey": os.environ["NVD_API_KEY"]})
+            r = requests.get(
+                nvd_url, headers={
+                    "apiKey": os.environ["NVD_API_KEY"]})
         else:
             r = requests.get(nvd_url)
         r.raise_for_status()  # check if ok
@@ -121,12 +123,20 @@ class VulnFetcherWorker(Worker, ABC):
         if cvss_31_metrics:
             cvss_score = float(cvss_31_metrics[0]['cvssData']['baseScore'])
         # get additional CVE details
-        description = [dsc['value'] for dsc in cve['descriptions'] if dsc['lang'] == 'en'][0]
-        cwe_ids = [cwe['description'][0]['value'] for cwe in cve['weaknesses'] if
-                   cwe['description'][0]['value'].startswith('CWE')]
+        description = [dsc['value']
+                       for dsc in cve['descriptions'] if dsc['lang'] == 'en'][0]
+        cwe_ids = [cwe['description'][0]['value'] for cwe in cve['weaknesses']
+                   if cwe['description'][0]['value'].startswith('CWE')]
 
         # return results
-        return NVDResult(cvss_score, cve['published'], description, nvd_url, datetime.now(timezone.utc), cwe_ids)
+        return NVDResult(
+            cvss_score,
+            cve['published'],
+            description,
+            nvd_url,
+            datetime.now(
+                timezone.utc),
+            cwe_ids)
 
     def _handle_message(self, message: str) -> None:
         """
@@ -152,40 +162,53 @@ class VulnFetcherWorker(Worker, ABC):
                 if not self._database.has_seen_cwe(cwe_id):
                     try:
                         mitre_result = _fetch_cwe(cwe_id)
-                        self._database.upsert_cwe(self._run_id, cwe_id,
-                                                  name=mitre_result.name,
-                                                  description=mitre_result.description,
-                                                  source=mitre_result.source,
-                                                  last_queried=datetime.now(timezone.utc),
-                                                  status_code=0)
+                        self._database.upsert_cwe(
+                            self._run_id,
+                            cwe_id,
+                            name=mitre_result.name,
+                            description=mitre_result.description,
+                            source=mitre_result.source,
+                            last_queried=datetime.now(
+                                timezone.utc),
+                            status_code=0)
                         logger.info(f"Added details for '{cwe_id}'")
                     except (RequestException, Exception) as e:
                         # handle failed to get cwe
                         details = {'cwe_id': cwe_id}
                         if hasattr(e, 'response'):
-                            details.update({'status_code': e.response.status_code})
-                        self._database.log_error(self._run_id, Stage.VULN, e, details=details)
-                        self._database.upsert_cwe(self._run_id, cwe_id,
-                                                  last_queried=datetime.now(timezone.utc), status_code=1)
+                            details.update(
+                                {'status_code': e.response.status_code})
+                        self._database.log_error(
+                            self._run_id, Stage.VULN, e, details=details)
+                        self._database.upsert_cwe(
+                            self._run_id, cwe_id, last_queried=datetime.now(
+                                timezone.utc), status_code=1)
                 # associate cve to cwe
-                self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
+                self._database.associate_cve_and_cwe(
+                    self._run_id, cve_id, cwe_id)
 
         except (RequestException, CVENotFoundError, Exception) as e:
             # handle failed to get cve
             logger.error_exp(e)
             details = None
             if isinstance(e, RequestException):
-                details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
+                details = {
+                    'status_code': e.response.status_code} if hasattr(
+                    e, 'response') else None
             if isinstance(e, CVENotFoundError):
                 details = {'cve_id': e.cve_id}
-            self._database.log_error(self._run_id, Stage.VULN, e, details=details)
-            self._database.upsert_cve(self._run_id, cve_id, last_queried=datetime.now(timezone.utc), status_code=1)
+            self._database.log_error(
+                self._run_id, Stage.VULN, e, details=details)
+            self._database.upsert_cve(
+                self._run_id, cve_id, last_queried=datetime.now(
+                    timezone.utc), status_code=1)
 
     def _handle_none_message(self) -> Literal['continue', 'break']:
         """
         Handle when get none message
         """
-        # not using the analyzer or are using and done flag is set - means no more cves will be added
+        # not using the analyzer or are using and done flag is set - means no
+        # more cves will be added
         if not self._analyzer_done_flag or self._analyzer_done_flag.is_set():
             return 'break'
         # else using the analyzer and cves still coming
@@ -253,17 +276,20 @@ def _fetch_cwe(cwe_id: str) -> MITREResult:
     # 1) Find the CWE name (often in an <h2> tag)
     h2_tag = soup.find("h2")
     if h2_tag:
-        cwe_name = h2_tag.get_text(strip=True).removeprefix(f"{cwe_id.upper()}: ")
+        cwe_name = h2_tag.get_text(
+            strip=True).removeprefix(f"{cwe_id.upper()}: ")
     else:
         cwe_name = None
 
-    # 2) Find the CWE description (look for a <div> with id="Description" or "Abstract")
+    # 2) Find the CWE description (look for a <div> with id="Description" or
+    # "Abstract")
     desc_div = soup.find("div", id="Description")
     if not desc_div:
         desc_div = soup.find("div", id="Abstract")
 
     if desc_div:
-        cwe_description = desc_div.get_text(strip=True).removeprefix("Description")
+        cwe_description = desc_div.get_text(
+            strip=True).removeprefix("Description")
     else:
         cwe_description = None
 

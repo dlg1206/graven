@@ -75,14 +75,16 @@ class CrawlerWorker(Worker, ABC):
             if match.group(2):
                 download_url = f"{url}{match.group(2)}"
                 # Skip if seen the url and not updating
-                if self._database.has_seen_jar_url(download_url) and not self._update_jar:
-                    logger.warn(f"Found jar url, but already seen. Skipping. . . | {download_url}")
+                if self._database.has_seen_jar_url(
+                        download_url) and not self._update_jar:
+                    logger.warn(
+                        f"Found jar url, but already seen. Skipping. . . | {download_url}")
                     continue
 
                 # save domain, jar url, and timestamp
-                self._database.upsert_jar(self._run_id,
-                                          download_url,
-                                          datetime.strptime(match.group(3).strip(), "%Y-%m-%d %H:%M"))
+                self._database.upsert_jar(
+                    self._run_id, download_url, datetime.strptime(
+                        match.group(3).strip(), "%Y-%m-%d %H:%M"))
                 # set if first hit
                 if self._crawler_first_hit_flag and not self._crawler_first_hit_flag.is_set():
                     self._crawler_first_hit_flag.set()
@@ -115,7 +117,8 @@ class CrawlerWorker(Worker, ABC):
             logger.error_exp(e)
             if hasattr(e, 'response'):
                 details['status_code'] = e.response.status_code
-            self._database.log_error(self._run_id, Stage.CRAWLER, e, details=details)
+            self._database.log_error(
+                self._run_id, Stage.CRAWLER, e, details=details)
         finally:
             # mark as done
             self._consumer_queue.task_done()
@@ -135,20 +138,30 @@ class CrawlerWorker(Worker, ABC):
             return 'continue'
 
         # mark as complete if was progress and this run that started it
-        if self._database.get_domain_status(self._current_domain) == CrawlStatus.IN_PROGRESS:
-            self._database.complete_domain(self._run_id, self._current_domain, datetime.now(timezone.utc))
+        if self._database.get_domain_status(
+                self._current_domain) == CrawlStatus.IN_PROGRESS:
+            self._database.complete_domain(
+                self._run_id,
+                self._current_domain,
+                datetime.now(
+                    timezone.utc))
 
         # restart with seed url if any left
         if self._seed_urls:
             new_root = self._seed_urls.pop(0)
-            new_root = new_root if new_root.endswith("/") else f"{new_root}/"  # check for '/'
-            logger.info(f"Crawler exhausted '{self._current_domain}'. Restarting with '{new_root}'")
+            new_root = new_root if new_root.endswith(
+                "/") else f"{new_root}/"  # check for '/'
+            logger.info(
+                f"Crawler exhausted '{
+                    self._current_domain}'. Restarting with '{new_root}'")
             self._current_domain = new_root
             # init if updating or dne
             if self._update_domain or self._database.get_domain_status(
                     self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
                 self._database.init_domain(self._run_id, self._current_domain)
-                logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
+                logger.debug_msg(
+                    f"Init crawler domain '{
+                        self._current_domain}'")
             self._consumer_queue.put(self._current_domain)
             return 'continue'
         # else exit
@@ -166,11 +179,14 @@ class CrawlerWorker(Worker, ABC):
             # if the crawl has not started, start it
             if crawl_status == crawl_status.NOT_STARTED:
                 self._database.start_domain(url, datetime.now(timezone.utc))
-                logger.debug_msg(f"Start crawler domain '{self._current_domain}'")
+                logger.debug_msg(
+                    f"Start crawler domain '{
+                        self._current_domain}'")
             # skip if already in progress or if complete and not updating
             elif crawl_status == CrawlStatus.IN_PROGRESS or (
                     crawl_status == CrawlStatus.COMPLETED and not self._update_domain):
-                logger.warn(f"Domain has already been explored. Skipping. . . | {url}")
+                logger.warn(
+                    f"Domain has already been explored. Skipping. . . | {url}")
                 # mark as none and release
                 self._consumer_queue.task_done()
                 return None
@@ -184,11 +200,13 @@ class CrawlerWorker(Worker, ABC):
         """
         # init urls
         root_url = self._seed_urls.pop(0)
-        self._current_domain = root_url if root_url.endswith("/") else f"{root_url}/"  # check for '/'
+        self._current_domain = root_url if root_url.endswith(
+            "/") else f"{root_url}/"  # check for '/'
         # seed queue
         self._consumer_queue.put(self._current_domain)
         # init if updating or dne
-        if self._update_domain or self._database.get_domain_status(self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
+        if self._update_domain or self._database.get_domain_status(
+                self._current_domain) == CrawlStatus.DOES_NOT_EXIST:
             self._database.init_domain(self._run_id, self._current_domain)
             logger.debug_msg(f"Init crawler domain '{self._current_domain}'")
         logger.info(f"Starting crawler at '{self._current_domain}'")
@@ -200,7 +218,8 @@ class CrawlerWorker(Worker, ABC):
         # indicate the crawler is finished
         if self._crawler_done_flag:
             self._crawler_done_flag.set()
-        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        # ensure the hit flag it set if used regardless of any hits to not
+        # deadlock rest of the pipeline
         if self._crawler_first_hit_flag:
             self._crawler_first_hit_flag.set()
 
@@ -210,7 +229,10 @@ class CrawlerWorker(Worker, ABC):
         """
         logger.info(f"Crawler completed in {self._timer.format_time()}")
         logger.info(
-            f"Crawler has seen {self._urls_seen} urls ({self._timer.get_count_per_second(self._urls_seen):.01f} urls/s)")
+            f"Crawler has seen {
+                self._urls_seen} urls ({
+                self._timer.get_count_per_second(
+                    self._urls_seen):.01f} urls/s)")
 
     def set_first_hit_flag(self, flag: Event) -> None:
         """

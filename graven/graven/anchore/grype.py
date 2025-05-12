@@ -45,11 +45,16 @@ class GrypeDatabaseInstallFailure(RuntimeError):
 
         :param grype_db_url: URL of database attempted to install
         """
-        super().__init__(f"{error_code} | Failed to install '{grype_db_url}' | {stderr}")
+        super().__init__(
+            f"{error_code} | Failed to install '{grype_db_url}' | {stderr}")
 
 
 class Grype:
-    def __init__(self, bin_path: str = GRYPE_BIN, check_for_updates: bool = True, db_source_url: str = None):
+    def __init__(
+            self,
+            bin_path: str = GRYPE_BIN,
+            check_for_updates: bool = True,
+            db_source_url: str = None):
         """
         Create new grype interface
 
@@ -86,7 +91,8 @@ class Grype:
         try:
             version = self.get_version()
         except subprocess.CalledProcessError:
-            raise FileNotFoundError("Could not find grype binary; is it on the path or in pwd?")
+            raise FileNotFoundError(
+                "Could not find grype binary; is it on the path or in pwd?")
         logger.info(f"Using grype {version}")
 
     def _get_grype_cache_dir(self) -> str:
@@ -116,7 +122,8 @@ class Grype:
             with open(cache_source_file, "r") as f:
                 cache_source_hash = f.read().strip()
             # check if already downloaded
-            if cache_source_hash == hashlib.sha256(self._db_source_url.encode()).hexdigest():
+            if cache_source_hash == hashlib.sha256(
+                    self._db_source_url.encode()).hexdigest():
                 logger.info(f"'{self._db_source_url}' already downloaded")
                 return True
             logger.warn(f"Cached source does not match requested url")
@@ -129,9 +136,15 @@ class Grype:
         Download database to use from url
         """
 
-        logger.info(f"Downloading grype database, this may take a few minutes | {self._db_source_url}")
+        logger.info(
+            f"Downloading grype database, this may take a few minutes | {
+                self._db_source_url}")
         with TemporaryDirectory() as tmp_dir:
-            grype_db_tarball = f"{tmp_dir}{os.sep}{self._db_source_url.split('/')[-1].replace(':', '_')}"
+            grype_db_tarball = f"{tmp_dir}{
+                os.sep}{
+                self._db_source_url.split('/')[
+                    -1].replace(
+                    ':', '_')}"
             # download tarball
             with requests.get(self._db_source_url) as response:
                 response.raise_for_status()
@@ -139,15 +152,22 @@ class Grype:
                     file.write(response.content)
             # install db
             logger.info(f"Downloaded grype database. Installing database. . .")
-            result = subprocess.run([f"{self._bin_path}", "db", "import", grype_db_tarball],
+            result = subprocess.run([f"{self._bin_path}",
+                                     "db",
+                                     "import",
+                                     grype_db_tarball],
                                     stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, encoding='utf-8')
+                                    stderr=subprocess.PIPE,
+                                    encoding='utf-8')
             if result.returncode:
-                raise GrypeDatabaseInstallFailure(self._db_source_url, result.returncode, result.stderr)
+                raise GrypeDatabaseInstallFailure(
+                    self._db_source_url, result.returncode, result.stderr)
         logger.info(f"Installed database")
 
         # cache download
-        cache_source_file = f"{self._get_grype_cache_dir()}{os.sep}{DB_SOURCE_FILE}"
+        cache_source_file = f"{
+            self._get_grype_cache_dir()}{
+            os.sep}{DB_SOURCE_FILE}"
         with open(cache_source_file, "w") as f:
             f.write(hashlib.sha256(self._db_source_url.encode()).hexdigest())
 
@@ -162,16 +182,28 @@ class Grype:
         if db_status:
             start_time = time.time()
             logger.warn("grype database needs to be updated!")
-            logger.warn("THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
-            logger.warn("Subsequent runs will be faster (only if using cached volume if using docker)")
-            result = subprocess.run([f"{self._bin_path}", "db", "update"], stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, encoding='utf-8')
+            logger.warn(
+                "THIS MAY TAKE A FEW MINUTES, ESPECIALLY IF THIS IS THE FIRST RUN")
+            logger.warn(
+                "Subsequent runs will be faster (only if using cached volume if using docker)")
+            result = subprocess.run([f"{self._bin_path}",
+                                     "db",
+                                     "update"],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE,
+                                    encoding='utf-8')
             if result.returncode:
-                raise GrypeDatabaseInstallFailure("latest", result.returncode, result.stderr)
-            logger.info(f"Updated grype vulnerability database in {time.time() - start_time:.2f} seconds")
+                raise GrypeDatabaseInstallFailure(
+                    "latest", result.returncode, result.stderr)
+            logger.info(
+                f"Updated grype vulnerability database in {
+                    time.time() -
+                    start_time:.2f} seconds")
 
             # remove the cached source if it exists
-            cache_source_file = f"{self._get_grype_cache_dir()}{os.sep}{DB_SOURCE_FILE}"
+            cache_source_file = f"{
+                self._get_grype_cache_dir()}{
+                os.sep}{DB_SOURCE_FILE}"
             if os.path.exists(cache_source_file):
                 os.remove(cache_source_file)
                 logger.debug_msg("Removed cached source url")
@@ -188,12 +220,20 @@ class Grype:
         :return: Return code of the operation
         """
         timer = Timer(True)
-        result = subprocess.run([self._bin_path, "--by-cve", f"-o json={out_path}", file_path],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        result = subprocess.run([self._bin_path,
+                                 "--by-cve",
+                                 f"-o json={out_path}",
+                                 file_path],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE)
         # non-zero error
         if result.returncode:
-            raise GrypeScanFailure(file_path, result.returncode, result.stderr.decode())
-        logger.debug_msg(f"Scanned in {timer.format_time()}s | {file_path.split(os.sep)[-1]}")
+            raise GrypeScanFailure(
+                file_path,
+                result.returncode,
+                result.stderr.decode())
+        logger.debug_msg(
+            f"Scanned in {timer.format_time()}s | {file_path.split(os.sep)[-1]}")
         return result.returncode
 
     def get_version(self) -> str:

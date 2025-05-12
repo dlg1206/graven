@@ -26,7 +26,8 @@ Description: Download jars into temp directories to be scanned
 
 RETRY_SLEEP = 10
 JAR_LIMIT_TIMEOUT = 30
-DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()  # limit to match cpus since binaries should be capped at thread count
+# limit to match cpus since binaries should be capped at thread count
+DEFAULT_MAX_DOWNLOADER_REQUESTS = os.cpu_count()
 
 
 class DownloaderWorker(Worker, ABC):
@@ -62,13 +63,18 @@ class DownloaderWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.warn(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
+            logger.warn(
+                f"[STOP ORDER RECEIVED] | Skipping download | {
+                    message.jar_url}")
             self._handle_shutdown(message)
             return
 
         # attempt to download jar
         self._database.update_jar_status(message.jar_id, Stage.DOWNLOADER)
-        message.init_jar_file(self._cache_manager, self._work_dir_path, self._jar_limit_semaphore)
+        message.init_jar_file(
+            self._cache_manager,
+            self._work_dir_path,
+            self._jar_limit_semaphore)
         try:
             # init jar
             timer = Timer(True)
@@ -78,23 +84,37 @@ class DownloaderWorker(Worker, ABC):
                     file.write(response.content)
             # log success
             message.jar_file.open()
-            logger.info(f"Downloaded in {timer.format_time()}s | {message.jar_url}")
+            logger.info(
+                f"Downloaded in {
+                    timer.format_time()}s | {
+                    message.jar_url}")
             # update cache if needed
-            self._cache_manager.update_space(message.jar_id, message.jar_file.get_file_size())
+            self._cache_manager.update_space(
+                message.jar_id, message.jar_file.get_file_size())
             self._downloaded_jars += 1
 
             # skip if stop order triggered
             if self._master_terminate_flag.is_set():
-                logger.warn(f"[STOP ORDER RECEIVED] | Downloaded but not processing | {message.jar_url}")
+                logger.warn(
+                    f"[STOP ORDER RECEIVED] | Downloaded but not processing | {
+                        message.jar_url}")
                 self._handle_shutdown(message)
             else:
                 # send downstream
-                self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_ANCHORE)
+                self._database.update_jar_status(
+                    message.jar_id, Stage.TRN_DWN_ANCHORE)
                 self._producer_queue.put(message)
         except (RequestException, Exception) as e:
             logger.error_exp(e)
-            details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
+            details = {
+                'status_code': e.response.status_code} if hasattr(
+                e, 'response') else None
+            self._database.log_error(
+                self._run_id,
+                Stage.DOWNLOADER,
+                e,
+                jar_id=message.jar_id,
+                details=details)
             # rm and release if anything goes wrong
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()
@@ -113,18 +133,23 @@ class DownloaderWorker(Worker, ABC):
         try:
             # ensure space available
             response = requests.head(message.jar_url, allow_redirects=True)
-            content_length = int(response.headers.get('content-length', 0))  # todo - content is 0?
+            content_length = int(
+                response.headers.get(
+                    'content-length',
+                    0))  # todo - content is 0?
             # warn if length not present
             if not content_length:
                 logger.warn(f"content-length is 0 | {message.jar_url}")
             # try to reserve space, requeue if no space
-            if not self._cache_manager.reserve_space(message.jar_id, content_length):
+            if not self._cache_manager.reserve_space(
+                    message.jar_id, content_length):
                 logger.warn("No space left in cache, trying later. . .")
                 self._database.shelf_message(message.jar_id)
                 time.sleep(RESERVE_BACKOFF_TIMEOUT)
                 return None
             # space reserved, kickoff job
-            return self._thread_pool_executor.submit(self._download_jar, message)
+            return self._thread_pool_executor.submit(
+                self._download_jar, message)
         except (RequestException, ExceedsCacheLimitError) as e:
             logger.error_exp(e)
             if isinstance(e, RequestException):
@@ -132,9 +157,16 @@ class DownloaderWorker(Worker, ABC):
                 details = {'status_code': e.response.status_code}
             else:
                 # exceed total cache, reject
-                details = {'file_size': e.file_size, 'exceeds_by': e.exceeds_by}
+                details = {
+                    'file_size': e.file_size,
+                    'exceeds_by': e.exceeds_by}
             # save error
-            self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
+            self._database.log_error(
+                self._run_id,
+                Stage.DOWNLOADER,
+                e,
+                jar_id=message.jar_id,
+                details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()
 
@@ -142,7 +174,8 @@ class DownloaderWorker(Worker, ABC):
         """
         Handle when get none message
         """
-        # not using the crawler or are using and done flag is set - means no more jars will be found
+        # not using the crawler or are using and done flag is set - means no
+        # more jars will be found
         if not self._crawler_done_flag or self._crawler_done_flag.is_set():
             return 'break'
         # else using the crawler and more jars will come
@@ -158,7 +191,8 @@ class DownloaderWorker(Worker, ABC):
         # limit the max number of jars on system at one time if using limiter
         if self._jar_limit_semaphore:
             while not self._master_terminate_flag.is_set():
-                if not self._jar_limit_semaphore.acquire(timeout=JAR_LIMIT_TIMEOUT):
+                if not self._jar_limit_semaphore.acquire(
+                        timeout=JAR_LIMIT_TIMEOUT):
                     logger.warn("Failed to acquire lock; retrying. . .")
                     continue
                 break
@@ -170,7 +204,8 @@ class DownloaderWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir_path = tempfile.mkdtemp(prefix='jar_', dir=kwargs['root_dir'])
+        self._work_dir_path = tempfile.mkdtemp(
+            prefix='jar_', dir=kwargs['root_dir'])
         # if using the crawler, wait until find a hit
         # todo - option to skip wait
         if self._crawler_first_hit_flag:
@@ -185,7 +220,10 @@ class DownloaderWorker(Worker, ABC):
         """
         logger.info(f"Downloader completed in {self._timer.format_time()}")
         logger.info(
-            f"Downloader has downloaded {self._downloaded_jars} jars ({self._timer.get_count_per_second(self._downloaded_jars):.01f} jars / s)")
+            f"Downloader has downloaded {
+                self._downloaded_jars} jars ({
+                self._timer.get_count_per_second(
+                    self._downloaded_jars):.01f} jars / s)")
 
     def set_crawler_first_hit_flag(self, flag: Event) -> None:
         """

@@ -51,7 +51,8 @@ class Level(Enum):
         return f"{self._color}{self.name}{CLEAR}"
 
 
-def _get_caller_module_name(caller_frame_distance: int = CALLER_FRAME_DISTANCE) -> str | None:
+def _get_caller_module_name(
+        caller_frame_distance: int = CALLER_FRAME_DISTANCE) -> str | None:
     """
     Search the stack from to get the caller module name
 
@@ -84,19 +85,34 @@ class Logger:
         return cls._instance
 
     def _initialize_logger(self,
-                           logging_level: Literal[Level.SILENT, Level.INFO, Level.ERROR, Level.DEBUG] = Level.INFO):
+                           logging_level: Literal[Level.SILENT,
+                                                  Level.INFO,
+                                                  Level.ERROR,
+                                                  Level.DEBUG] = Level.INFO):
         """
         Create new logger instance. Can be SILENT, INFO, ERROR, or DEBUG
 
         :param logging_level: Logging level (default: INFO)
         """
-        if logging_level not in [Level.SILENT, Level.INFO, Level.ERROR, Level.DEBUG]:
-            raise ValueError(f"Invalid logging level: '{logging_level}'. "
-                             f"Must be one of "
-                             f"{[Level.SILENT.name, Level.INFO.name, Level.ERROR.name, Level.DEBUG.name]}")
+        if logging_level not in [
+                Level.SILENT,
+                Level.INFO,
+                Level.ERROR,
+                Level.DEBUG]:
+            raise ValueError(
+                f"Invalid logging level: '{logging_level}'. " f"Must be one of " f"{
+                    [
+                        Level.SILENT.name,
+                        Level.INFO.name,
+                        Level.ERROR.name,
+                        Level.DEBUG.name]}")
         self._logging_level = logging_level
 
-    def _log(self, level: Level, msg: str, exception: Exception | None = None) -> None:
+    def _log(
+            self,
+            level: Level,
+            msg: str,
+            exception: Exception | None = None) -> None:
         """
         Print log message
 
@@ -154,8 +170,13 @@ class Logger:
         """
         return self._logging_level
 
-    def get_data_queue(self, data: Iterable[Any], description: str, unit: str, is_async: bool = False,
-                       is_threaded: bool = False) -> Iterable[Any]:
+    def get_data_queue(
+            self,
+            data: Iterable[Any],
+            description: str,
+            unit: str,
+            is_async: bool = False,
+            is_threaded: bool = False) -> Iterable[Any]:
         """
         Create a dynamic loading bar if in INFO mode
 
@@ -169,14 +190,27 @@ class Logger:
         """
         # use pretty loading bar if INFO level
         if self._logging_level == Level.INFO:
-            desc = f"{datetime.now()} | {Level.INFO}   | {_get_caller_module_name(2)} | {description}"
+            desc = f"{
+                datetime.now()} | {
+                Level.INFO}   | {
+                _get_caller_module_name(2)} | {description}"
             # todo handle either one or other
             if is_async:
-                return tqdm(asyncio.as_completed(data),
-                            desc=desc, unit=f"{unit}", file=sys.stdout, total=len(list(data)))
+                return tqdm(
+                    asyncio.as_completed(data),
+                    desc=desc,
+                    unit=f"{unit}",
+                    file=sys.stdout,
+                    total=len(
+                        list(data)))
             if is_threaded:
-                return tqdm(concurrent.futures.as_completed(data),
-                            desc=desc, unit=f"{unit}", file=sys.stdout, total=len(list(data)))
+                return tqdm(
+                    concurrent.futures.as_completed(data),
+                    desc=desc,
+                    unit=f"{unit}",
+                    file=sys.stdout,
+                    total=len(
+                        list(data)))
             # return non-async
             return tqdm(data, desc=desc, unit=f"{unit}", file=sys.stdout)
         # else just return data, awaited if needed

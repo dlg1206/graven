@@ -23,7 +23,11 @@ QUEUE_POLL_TIMEOUT = 1
 
 class Worker(ABC):
 
-    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, name: str):
+    def __init__(
+            self,
+            master_terminate_flag: Event,
+            database: GravenDatabase,
+            name: str):
         """
         A generic worker interface that handles polling and pushing messages between queues
 
@@ -119,7 +123,11 @@ class Worker(ABC):
         """
         self._producer_queue = producer_queue
 
-    def start(self, run_id: int, thread_pool_executor: ThreadPoolExecutor = None, **kwargs: Any) -> None:
+    def start(
+            self,
+            run_id: int,
+            thread_pool_executor: ThreadPoolExecutor = None,
+            **kwargs: Any) -> None:
         """
         Main run function that starts the worker
 
@@ -147,7 +155,7 @@ class Worker(ABC):
                     self._tasks.append(task)
             except Empty:
                 """
-                To prevent deadlocks, the forced timeout with throw this error 
+                To prevent deadlocks, the forced timeout with throw this error
                 for another iteration of the loop to check conditions
                 """
                 # determine whether to continue or break
@@ -162,7 +170,8 @@ class Worker(ABC):
         if self._master_terminate_flag.is_set():
             logger.warn(f"{self._name} | Stop order received, exiting. . .")
         else:
-            logger.warn(f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
+            logger.warn(
+                f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
         # safe exit
         concurrent.futures.wait(self._tasks)
         logger.info(f"{self._name} | All tasks finished, exiting. . .")

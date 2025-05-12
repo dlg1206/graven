@@ -39,7 +39,10 @@ class AnalyzerWorker(Worker, ABC):
         # set at runtime
         self._run_id = None
 
-    def _compress_and_save_sbom(self, jar_id: str, syft_file: SyftFile) -> None:
+    def _compress_and_save_sbom(
+            self,
+            jar_id: str,
+            syft_file: SyftFile) -> None:
         """
         Compress SBOM with zstandard and save to the binary to the database
 
@@ -53,7 +56,9 @@ class AnalyzerWorker(Worker, ABC):
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.debug_msg(f"Compressed and saved SBOM in {timer.format_time()}s | {jar_id}")
+        logger.debug_msg(
+            f"Compressed and saved SBOM in {
+                timer.format_time()}s | {jar_id}")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -81,15 +86,21 @@ class AnalyzerWorker(Worker, ABC):
                 # set if first hit
                 if self._analyzer_first_hit_flag and not self._analyzer_done_flag.is_set():
                     self._analyzer_first_hit_flag.set()
-                self._database.upsert_cve(self._run_id, vid, severity=vuln['severity'])
+                self._database.upsert_cve(
+                    self._run_id, vid, severity=vuln['severity'])
                 logger.info(f"Found new CVE: '{vid}'")
 
             # save to db
             self._database.associate_jar_and_cve(self._run_id, jar_id, vid)
         # save timestamp (grype uses RFC 3339 timestamp?)
-        last_scanned = datetime.fromisoformat(grype_data['descriptor']['timestamp']).astimezone(timezone.utc)
-        self._database.upsert_jar_last_grype_scan(self._run_id, jar_id, last_scanned)
-        logger.debug_msg(f"Processed and saved grype report in {timer.format_time()}s | {jar_id}")
+        last_scanned = datetime.fromisoformat(
+            grype_data['descriptor']['timestamp']).astimezone(
+            timezone.utc)
+        self._database.upsert_jar_last_grype_scan(
+            self._run_id, jar_id, last_scanned)
+        logger.debug_msg(
+            f"Processed and saved grype report in {
+                timer.format_time()}s | {jar_id}")
 
     def _analyze_files(self, message: Message) -> None:
         """
@@ -100,9 +111,13 @@ class AnalyzerWorker(Worker, ABC):
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             if message.syft_file:
-                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
+                logger.debug_msg(
+                    f"[STOP ORDER RECEIVED] | Skipping analysis | {
+                        message.syft_file.file_name}")
             if message.grype_file:
-                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
+                logger.debug_msg(
+                    f"[STOP ORDER RECEIVED] | Skipping analysis | {
+                        message.grype_file.file_name}")
             self._handle_shutdown(message)
             return
         # process files
@@ -112,10 +127,13 @@ class AnalyzerWorker(Worker, ABC):
             # process and save sbom
             if message.syft_file:
                 if message.syft_file.is_open:
-                    self._compress_and_save_sbom(message.jar_id, message.syft_file)
+                    self._compress_and_save_sbom(
+                        message.jar_id, message.syft_file)
                     message.syft_file.close()
                 else:
-                    logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
+                    logger.debug_msg(
+                        f"syft file is closed, skipping. . . | {
+                            message.syft_file.file_name}")
             else:
                 logger.debug_msg(f"syft file dne, skipping. . .")
             # process grype report
@@ -123,13 +141,19 @@ class AnalyzerWorker(Worker, ABC):
                 self._save_grype_results(message.jar_id, message.grype_file)
                 message.grype_file.close()
             else:
-                logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
+                logger.debug_msg(
+                    f"grype file is closed, skipping. . . | {
+                        message.grype_file.file_name}")
             # mark as done
             self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
-            logger.info(f"Processed in {timer.format_time()}s | {message.jar_id}")
+            logger.info(
+                f"Processed in {
+                    timer.format_time()}s | {
+                    message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
-            self._database.log_error(self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
+            self._database.log_error(
+                self._run_id, Stage.ANALYZER, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # remove any remaining files
@@ -157,7 +181,8 @@ class AnalyzerWorker(Worker, ABC):
         # indicate the analyzer is finished
         if self._analyzer_done_flag:
             self._analyzer_done_flag.set()
-        # ensure the hit flag it set if used regardless of any hits to not deadlock rest of the pipeline
+        # ensure the hit flag it set if used regardless of any hits to not
+        # deadlock rest of the pipeline
         if self._analyzer_first_hit_flag:
             self._analyzer_first_hit_flag.set()
 

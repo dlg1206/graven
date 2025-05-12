@@ -14,7 +14,12 @@ Description: Util class to handle removing files from after usage
 
 
 class File:
-    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, file_ext: str) -> None:
+    def __init__(
+            self,
+            cache: CacheManager,
+            work_dir: str,
+            file_name: str,
+            file_ext: str) -> None:
         """
         Create a new file object
 
@@ -42,7 +47,9 @@ class File:
         """
         Open the file and ensure cache is updated - must be on the system
         """
-        self._cache.update_space(self._file_name, os.path.getsize(self._file_path))
+        self._cache.update_space(
+            self._file_name, os.path.getsize(
+                self._file_path))
         self._open = True
 
     def close(self) -> None:
@@ -83,7 +90,12 @@ class File:
 
 
 class JarFile(File):
-    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, jar_limit_semaphore: Semaphore = None):
+    def __init__(
+            self,
+            cache: CacheManager,
+            work_dir: str,
+            file_name: str,
+            jar_limit_semaphore: Semaphore = None):
         """
         Create a new jar file object with limit lock
 

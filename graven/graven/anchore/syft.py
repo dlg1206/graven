@@ -53,7 +53,8 @@ class Syft:
         try:
             version = self.get_version()
         except subprocess.CalledProcessError:
-            raise FileNotFoundError("Could not find syft binary; is it on the path or in pwd?")
+            raise FileNotFoundError(
+                "Could not find syft binary; is it on the path or in pwd?")
         logger.info(f"Using syft {version}")
 
     def scan(self, jar_path: str, out_path: str) -> int:
@@ -66,12 +67,21 @@ class Syft:
         :return: Return code of the operation
         """
         timer = Timer(True)
-        result = subprocess.run([self._bin_path, f"-o json={out_path}", "--from", "local-file", jar_path],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        result = subprocess.run([self._bin_path,
+                                 f"-o json={out_path}",
+                                 "--from",
+                                 "local-file",
+                                 jar_path],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE)
         # non-zero, non-one error
         if result.returncode:
-            raise SyftScanFailure(jar_path, result.returncode, result.stderr.decode())
-        logger.debug_msg(f"Scanned in {timer.format_time()}s | {jar_path.split(os.sep)[-1]}")
+            raise SyftScanFailure(
+                jar_path,
+                result.returncode,
+                result.stderr.decode())
+        logger.debug_msg(
+            f"Scanned in {timer.format_time()}s | {jar_path.split(os.sep)[-1]}")
         return result.returncode
 
     def get_version(self) -> str:
