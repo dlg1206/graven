@@ -1,3 +1,11 @@
+"""
+File: analyzer.py
+
+Description: Worker dedicated to parsing anchore output and writing data to the database
+
+@author Derek Garcia
+"""
+
 import json
 from abc import ABC
 from concurrent.futures import Future
@@ -13,18 +21,14 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: analyzer.py
-
-Description: Worker dedicated to parsing anchore output and writing data to the database
-
-@author Derek Garcia
-"""
-
 MAX_ANALYZER_THREADS = 50
 
 
 class AnalyzerWorker(Worker, ABC):
+    """
+    Worker dedicated to parsing anchore output and writing data to the database
+    """
+
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase):
         """
         Create a new analyzer worker that constantly parses anchore output and saves data to the database
@@ -39,10 +43,7 @@ class AnalyzerWorker(Worker, ABC):
         # set at runtime
         self._run_id = None
 
-    def _compress_and_save_sbom(
-            self,
-            jar_id: str,
-            syft_file: SyftFile) -> None:
+    def _compress_and_save_sbom(self, jar_id: str, syft_file: SyftFile) -> None:
         """
         Compress SBOM with zstandard and save to the binary to the database
 
@@ -56,9 +57,7 @@ class AnalyzerWorker(Worker, ABC):
             compressed_data = cctx.compress(f.read())
 
         self._database.upsert_sbom_blob(self._run_id, jar_id, compressed_data)
-        logger.debug_msg(
-            f"Compressed and saved SBOM in {
-                timer.format_time()}s | {jar_id}")
+        logger.debug_msg(f"Compressed and saved SBOM in {timer.format_time()}s | {jar_id}")
 
     def _save_grype_results(self, jar_id: str, grype_file: GrypeFile) -> None:
         """
@@ -98,9 +97,7 @@ class AnalyzerWorker(Worker, ABC):
             timezone.utc)
         self._database.upsert_jar_last_grype_scan(
             self._run_id, jar_id, last_scanned)
-        logger.debug_msg(
-            f"Processed and saved grype report in {
-                timer.format_time()}s | {jar_id}")
+        logger.debug_msg(f"Processed and saved grype report in {timer.format_time()}s | {jar_id}")
 
     def _analyze_files(self, message: Message) -> None:
         """
@@ -111,13 +108,9 @@ class AnalyzerWorker(Worker, ABC):
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             if message.syft_file:
-                logger.debug_msg(
-                    f"[STOP ORDER RECEIVED] | Skipping analysis | {
-                        message.syft_file.file_name}")
+                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.syft_file.file_name}")
             if message.grype_file:
-                logger.debug_msg(
-                    f"[STOP ORDER RECEIVED] | Skipping analysis | {
-                        message.grype_file.file_name}")
+                logger.debug_msg(f"[STOP ORDER RECEIVED] | Skipping analysis | {message.grype_file.file_name}")
             self._handle_shutdown(message)
             return
         # process files
@@ -131,25 +124,18 @@ class AnalyzerWorker(Worker, ABC):
                         message.jar_id, message.syft_file)
                     message.syft_file.close()
                 else:
-                    logger.debug_msg(
-                        f"syft file is closed, skipping. . . | {
-                            message.syft_file.file_name}")
+                    logger.debug_msg(f"syft file is closed, skipping. . . | {message.syft_file.file_name}")
             else:
-                logger.debug_msg(f"syft file dne, skipping. . .")
+                logger.debug_msg("syft file dne, skipping. . .")
             # process grype report
             if message.grype_file.is_open:
                 self._save_grype_results(message.jar_id, message.grype_file)
                 message.grype_file.close()
             else:
-                logger.debug_msg(
-                    f"grype file is closed, skipping. . . | {
-                        message.grype_file.file_name}")
+                logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
             # mark as done
             self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
-            logger.info(
-                f"Processed in {
-                    timer.format_time()}s | {
-                    message.jar_id}")
+            logger.info(f"Processed in {timer.format_time()}s | {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
             self._database.log_error(
@@ -190,7 +176,7 @@ class AnalyzerWorker(Worker, ABC):
         """
         Print worker specific statistic messages
         """
-        pass
+        return
 
     def set_first_hit_flag(self, flag: Event) -> None:
         """

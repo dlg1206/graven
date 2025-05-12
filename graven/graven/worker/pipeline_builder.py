@@ -1,3 +1,11 @@
+"""
+File: pipeline_builder.py
+
+Description: Builder for generating, coupling, and running graven workers
+
+@author Derek Garcia
+"""
+
 import concurrent
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -11,25 +19,21 @@ from anchore.syft import Syft
 from db.graven_database import GravenDatabase
 from shared.logger import logger
 from shared.timer import Timer
-from worker.analzyer import AnalyzerWorker, MAX_ANALYZER_THREADS
+from worker.analyzer import AnalyzerWorker, MAX_ANALYZER_THREADS
 from worker.crawler import CrawlerWorker
 from worker.downloader import DownloaderWorker
 from worker.generator import GeneratorWorker
 from worker.scanner import ScannerWorker
 from worker.vuln_fetcher import VulnFetcherWorker
 
-"""
-File: pipeline_builder.py
-
-Description: Builder for generating, coupling, and running graven workers
-
-@author Derek Garcia
-"""
-
 DEFAULT_MAX_CPU_THREADS = os.cpu_count()
 
 
 class PipelineBuilder:
+    """
+    Builder to construct graven pipelines to run
+    """
+
     def __init__(self):
         """
         Create new pipeline builder
@@ -152,7 +156,9 @@ class PipelineBuilder:
         :param download_cache_size: Size of jar cache to use in bytes
         :param grype_cache_size: Size of grype cache to use in bytes
         :param grype_path: Path to grype bin
-        :param grype_db_source: Optional source url of specific grype database to use. If defined, database will not be updated
+        :param grype_db_source:
+            Optional source url of specific grype database to use.
+            If defined, database will not be updated
         :param jar_limit: Optional limit of jars to download at once
         :return: builder
         """
@@ -260,42 +266,21 @@ class PipelineBuilder:
             # create list of workers to run
             tasks = []
             if self._crawler:
-                tasks.append(
-                    lambda: _graceful_start(
-                        self._crawler.start,
-                        run_id,
-                        crawl_exe))
+                tasks.append(lambda: _graceful_start(self._crawler.start, run_id, crawl_exe))
             if self._downloader:
                 tasks.append(
-                    lambda: _graceful_start(
-                        self._downloader.start,
-                        run_id,
-                        downloader_exe,
-                        root_dir=tmp_dir))
+                    lambda: _graceful_start(self._downloader.start, run_id, downloader_exe, root_dir=tmp_dir))
             if self._generator:
                 tasks.append(
-                    lambda: _graceful_start(
-                        self._generator.start,
-                        run_id,
-                        cpu_exe,
-                        root_dir=tmp_dir))
+                    lambda: _graceful_start(self._generator.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._scanner:
                 tasks.append(
-                    lambda: _graceful_start(
-                        self._scanner.start,
-                        run_id,
-                        cpu_exe,
-                        root_dir=tmp_dir))
+                    lambda: _graceful_start(self._scanner.start, run_id, cpu_exe, root_dir=tmp_dir))
             if self._analyzer:
                 tasks.append(
-                    lambda: _graceful_start(
-                        self._analyzer.start,
-                        run_id,
-                        analyzer_exe))
+                    lambda: _graceful_start(self._analyzer.start, run_id, analyzer_exe))
             if self._vuln_fetcher:
-                tasks.append(
-                    lambda: _graceful_start(
-                        self._vuln_fetcher.start, run_id))
+                tasks.append(lambda: _graceful_start(self._vuln_fetcher.start, run_id))
 
             timer = Timer(True)
             with ThreadPoolExecutor(max_workers=len(tasks)) as exe:
@@ -310,10 +295,7 @@ class PipelineBuilder:
                 # interrupt
                 except KeyboardInterrupt:
                     # report early exit with padding
-                    logger.warn(
-                        f"\n\n{
-                            '\033[1;31mKeyboardInterrupt received! Shutting down workers. . .\n\033[0m' *
-                            5}")
+                    logger.warn(f"\n\n{'\033[1;31mKeyboardInterrupt received! Shutting down workers. . \n\033[0m' * 5}")
                     self._interrupt_stop_flag.set()
                     logger.warn("Shutting down workers")
                     exit_code = 2
@@ -353,10 +335,7 @@ class PipelineBuilder:
         return exit_code
 
 
-def _graceful_start(
-        start_function: Callable,
-        *args: Any,
-        **kwargs: Any) -> None:
+def _graceful_start(start_function: Callable, *args: Any, **kwargs: Any) -> None:
     """
     Wrapper function for handling errors on exiting
 

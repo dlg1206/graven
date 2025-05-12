@@ -1,3 +1,11 @@
+"""
+File: worker.py
+
+Description: Generic worker to handle common tasks
+
+@author Derek Garcia
+"""
+
 import concurrent
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -10,24 +18,16 @@ from qmodel.message import Message
 from shared.logger import logger
 from shared.timer import Timer
 
-"""
-File: worker.py
-
-Description: Generic worker to handle common tasks
-
-@author Derek Garcia
-"""
-
 QUEUE_POLL_TIMEOUT = 1
 
 
 class Worker(ABC):
+    """
+    Generic worker to handle common tasks
 
-    def __init__(
-            self,
-            master_terminate_flag: Event,
-            database: GravenDatabase,
-            name: str):
+    """
+
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, name: str):
         """
         A generic worker interface that handles polling and pushing messages between queues
 
@@ -99,13 +99,13 @@ class Worker(ABC):
 
         :param kwargs: Any pre start configuration
         """
-        pass
+        return
 
     def _post_start(self) -> None:
         """
         Optional post start conditions to handle
         """
-        pass
+        return
 
     def set_consumer_queue(self, consumer_queue: Queue[Any | None]) -> None:
         """
@@ -123,11 +123,7 @@ class Worker(ABC):
         """
         self._producer_queue = producer_queue
 
-    def start(
-            self,
-            run_id: int,
-            thread_pool_executor: ThreadPoolExecutor = None,
-            **kwargs: Any) -> None:
+    def start(self, run_id: int, thread_pool_executor: ThreadPoolExecutor = None, **kwargs: Any) -> None:
         """
         Main run function that starts the worker
 
@@ -170,8 +166,7 @@ class Worker(ABC):
         if self._master_terminate_flag.is_set():
             logger.warn(f"{self._name} | Stop order received, exiting. . .")
         else:
-            logger.warn(
-                f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
+            logger.warn(f"{self._name} | No more messages to process, waiting for remaining tasks to finish. . .")
         # safe exit
         concurrent.futures.wait(self._tasks)
         logger.info(f"{self._name} | All tasks finished, exiting. . .")
@@ -192,11 +187,11 @@ class Worker(ABC):
         :param message: The message to handle
         :return: The Future task or None if now task made
         """
-        pass
+        return
 
     @abstractmethod
     def print_statistics_message(self) -> None:
         """
         Print worker specific statistic messages
         """
-        pass
+        return

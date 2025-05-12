@@ -1,10 +1,3 @@
-import os
-import platform
-import subprocess
-
-from shared.logger import logger
-from shared.timer import Timer
-
 """
 File: syft.py
 Description: Interface for interacting with the Syft binary
@@ -12,10 +5,21 @@ Description: Interface for interacting with the Syft binary
 @author Derek Garcia
 """
 
+import os
+import platform
+import subprocess
+
+from shared.logger import logger
+from shared.timer import Timer
+
 SYFT_BIN = "syft.exe" if platform.system() == "Windows" else "syft"
 
 
 class SyftScanFailure(RuntimeError):
+    """
+    Failed to scan with syft
+    """
+
     def __init__(self, file_name: str, return_code: int, stderr: str = None):
         """
         Create new scan failure
@@ -31,6 +35,10 @@ class SyftScanFailure(RuntimeError):
 
 
 class Syft:
+    """
+    Grype scanner
+    """
+
     def __init__(self, bin_path: str = SYFT_BIN):
         """
         Create new syft interface
@@ -52,9 +60,8 @@ class Syft:
         """
         try:
             version = self.get_version()
-        except subprocess.CalledProcessError:
-            raise FileNotFoundError(
-                "Could not find syft binary; is it on the path or in pwd?")
+        except subprocess.CalledProcessError as e:
+            raise FileNotFoundError("Could not find syft binary; is it on the path or in pwd?") from e
         logger.info(f"Using syft {version}")
 
     def scan(self, jar_path: str, out_path: str) -> int:
@@ -67,13 +74,10 @@ class Syft:
         :return: Return code of the operation
         """
         timer = Timer(True)
-        result = subprocess.run([self._bin_path,
-                                 f"-o json={out_path}",
-                                 "--from",
-                                 "local-file",
-                                 jar_path],
+        result = subprocess.run([self._bin_path, "-o", f"json={out_path}", "--from", "local-file", jar_path],
                                 stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE)
+                                stderr=subprocess.PIPE,
+                                check=False)
         # non-zero, non-one error
         if result.returncode:
             raise SyftScanFailure(

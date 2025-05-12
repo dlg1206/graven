@@ -19,18 +19,21 @@ RESERVE_BACKOFF_TIMEOUT = 5  # backoff time to allow for cache to be cleared
 
 class ExceedsCacheLimitError(MemoryError):
     """
-    Attempt to save item that exceeds alloted space
+    Attempt to save item that exceeds allowed space
     """
 
-    def __init__(self, file_size: int, exceeds_by: int):
-        super().__init__(
-            f"Data exceeds allocated cache by {
-                bytes_to_mb(exceeds_by):.2f} MB")
+    def __init__(self, file_name: str, file_size: int, exceeds_by: int):
+        super().__init__(f"Data exceeds allocated cache by {bytes_to_mb(exceeds_by):.2f} MB")
+        self.file_name = file_name
         self.file_size = file_size
         self.exceeds_by = exceeds_by
 
 
 class CacheManager:
+    """
+    Cache manager that handles the files available on the system
+    """
+
     def __init__(self, max_capacity: int = DEFAULT_MAX_CAPACITY):
         """
         Create new cache manager
@@ -38,7 +41,7 @@ class CacheManager:
         :param max_capacity: Max size in bytes the cache can hold
         """
         self._lock = Lock()
-        self._index = dict()
+        self._index = {}
         self._current_capacity = 0
         self._max_capacity = max_capacity
 
@@ -63,17 +66,14 @@ class CacheManager:
         """
         # ensure doesn't exceed limit
         if file_size > self._max_capacity:
-            raise ExceedsCacheLimitError(
-                file_size, file_size - self._max_capacity)
+            raise ExceedsCacheLimitError(file_uid, file_size, file_size - self._max_capacity)
         # attempt to reserve space
         with self._open_critical_section():
             space_available = self._current_capacity + file_size < self._max_capacity
             if space_available:
                 self._index[file_uid] = file_size
                 self._current_capacity += file_size
-                logger.debug_msg(
-                    f"Reserved '{file_uid}' | reserved: {file_size} | space: {
-                        self._current_capacity}")
+                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} | space: {self._current_capacity}")
             return space_available
 
     def update_space(self, file_uid: str, file_size: int) -> None:
@@ -88,15 +88,13 @@ class CacheManager:
             return
         # else update
         with self._open_critical_section():
-            diff = self._index[file_uid] - file_size    # before - after
+            diff = self._index[file_uid] - file_size  # before - after
             # remove previous estimate
             self._current_capacity -= self._index[file_uid]
             # set with corrected estimate
             self._index[file_uid] = file_size
             self._current_capacity += file_size
-            logger.debug_msg(
-                f"Updated '{file_uid}' | diff: {diff} | space: {
-                    self._current_capacity}")
+            logger.debug_msg(f"Updated '{file_uid}' | diff: {diff} | space: {self._current_capacity}")
 
     def free_space(self, file_uid: str) -> None:
         """
@@ -106,9 +104,7 @@ class CacheManager:
         with self._open_critical_section():
             free = self._index.pop(file_uid, 0)
             self._current_capacity -= free
-            logger.debug_msg(
-                f"Freed '{file_uid}' | freed: {free} | space: {
-                    self._current_capacity}")
+            logger.debug_msg(f"Freed '{file_uid}' | freed: {free} | space: {self._current_capacity}")
 
 
 def bytes_to_mb(size: int) -> float:

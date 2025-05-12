@@ -1,3 +1,11 @@
+"""
+File: scanner.py
+
+Description: Use grype to scan jars to find CVEs
+
+@author Derek Garcia
+"""
+
 import tempfile
 import time
 from abc import ABC
@@ -13,25 +21,18 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: scanner.py
-
-Description: Use grype to scan jars to find CVEs
-
-@author Derek Garcia
-"""
-
 # reserve .02 MB / 20 KB of space per grype report
 GRYPE_SPACE_BUFFER = 0.02 * BYTES_PER_MB
 
 
 class ScannerWorker(Worker, ABC):
-    def __init__(
-            self,
-            master_terminate_flag: Event,
-            database: GravenDatabase,
-            grype: Grype,
-            cache_size: int):
+    """
+    Worker that constantly generate vulnerability reports using grype
+    """
+
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase,
+                 grype: Grype,
+                 cache_size: int):
         """
         Create a new scanner worker that spawns threads to process syft sboms using grype
 
@@ -60,9 +61,7 @@ class ScannerWorker(Worker, ABC):
         """
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.warn(
-                f"[STOP ORDER RECEIVED] | Skipping grype scan | {
-                    message.jar_id}")
+            logger.warn(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
             self._handle_shutdown(message)
             return
         # scan
@@ -79,10 +78,7 @@ class ScannerWorker(Worker, ABC):
             self._grype.scan(file_path, message.grype_file.file_path)
             # report success
             message.grype_file.open()
-            logger.info(
-                f"Generated grype report in {
-                    timer.format_time()}s | {
-                    message.grype_file.file_name}")
+            logger.info(f"Generated grype report in {timer.format_time()}s | {message.grype_file.file_name}")
 
             # update counts
             if message.syft_file and message.syft_file.is_open:
@@ -91,9 +87,7 @@ class ScannerWorker(Worker, ABC):
                 self._jars_scanned += 1
             # skip if stop order triggered
             if self._master_terminate_flag.is_set():
-                logger.warn(
-                    f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {
-                        message.jar_url}")
+                logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
                 self._handle_shutdown(message)
             else:
                 self._database.update_jar_status(
@@ -106,12 +100,7 @@ class ScannerWorker(Worker, ABC):
             details = None
             if isinstance(e, GrypeScanFailure):
                 details = {'return_code': e.return_code, 'stderr': e.stderr}
-            self._database.log_error(
-                self._run_id,
-                Stage.SCANNER,
-                e,
-                jar_id=message.jar_id,
-                details=details)
+            self._database.log_error(self._run_id, Stage.SCANNER, e, jar_id=message.jar_id, details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
         finally:
             # mark as done
@@ -134,29 +123,23 @@ class ScannerWorker(Worker, ABC):
             # init file
         message.init_grype_file(self._cache_manager, self._work_dir_path)
         # try to reserve space, requeue if no space
-        if not self._cache_manager.reserve_space(
-                message.grype_file.file_name, GRYPE_SPACE_BUFFER):
+        if not self._cache_manager.reserve_space(message.grype_file.file_name, GRYPE_SPACE_BUFFER):
             logger.warn("No space left in cache, trying later. . .")
             message.grype_file.close()
             self._consumer_queue.put(message)
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
         # else process
-        return self._thread_pool_executor.submit(
-            self._scan_with_grype, message)
+        return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
     def print_statistics_message(self) -> None:
         """
         Prints statistics about the scanner
         """
         logger.info(f"Scanner completed in {self._timer.format_time()}")
-        logger.info(
-            f"Scanner has scanned {
-                self._sboms_scanned} SBOMs ({
-                self._timer.get_count_per_second(
-                    self._sboms_scanned):.01f} SBOMs / s)")
-        logger.info(
-            f"Scanner has scanned {self._jars_scanned} jars")
+        logger.info(f"Scanner has scanned {self._sboms_scanned} SBOMs "
+                    f"({self._timer.get_count_per_second(self._sboms_scanned):.01f} SBOMs / s)")
+        logger.info(f"Scanner has scanned {self._jars_scanned} jars")
 
     def _pre_start(self, **kwargs: Any) -> None:
         """

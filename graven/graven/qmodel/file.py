@@ -1,9 +1,3 @@
-import os
-from threading import Semaphore
-
-from shared.cache_manager import CacheManager
-from shared.logger import logger
-
 """
 File: file.py
 
@@ -12,14 +6,19 @@ Description: Util class to handle removing files from after usage
 @author Derek Garcia
 """
 
+import os
+from threading import Semaphore
+
+from shared.cache_manager import CacheManager
+from shared.logger import logger
+
 
 class File:
-    def __init__(
-            self,
-            cache: CacheManager,
-            work_dir: str,
-            file_name: str,
-            file_ext: str) -> None:
+    """
+    Wrapper for handling file representation
+    """
+
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, file_ext: str) -> None:
         """
         Create a new file object
 
@@ -90,12 +89,11 @@ class File:
 
 
 class JarFile(File):
-    def __init__(
-            self,
-            cache: CacheManager,
-            work_dir: str,
-            file_name: str,
-            jar_limit_semaphore: Semaphore = None):
+    """
+    Wrapper for a jar file
+    """
+
+    def __init__(self, cache: CacheManager, work_dir: str, file_name: str, jar_limit_semaphore: Semaphore = None):
         """
         Create a new jar file object with limit lock
 
@@ -118,6 +116,10 @@ class JarFile(File):
 
 
 class SyftFile(File):
+    """
+    Wrapper for a syft file
+    """
+
     def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
         """
         Create a new syft file
@@ -130,6 +132,10 @@ class SyftFile(File):
 
 
 class GrypeFile(File):
+    """
+    Wrapper for a grype file
+    """
+
     def __init__(self, cache: CacheManager, work_dir: str, file_name: str):
         """
         Create a new grype file

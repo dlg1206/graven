@@ -1,3 +1,9 @@
+"""
+File: database.py
+Description: MySQL database interface for handling cve data
+@author Derek Garcia
+"""
+
 import os
 from enum import Enum
 from typing import List, Tuple, Any, Dict
@@ -6,12 +12,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from shared.logger import logger
-
-"""
-File: database.py
-Description: MySQL database interface for handling cve data
-@author Derek Garcia
-"""
 
 DEFAULT_POOL_SIZE = 10
 MAX_OVERFLOW_RATIO = 2  # default 200% of pool size
@@ -30,7 +30,8 @@ class MySQLDatabase:
 
     def __init__(self, pool_size: int = DEFAULT_POOL_SIZE):
         """
-        Create MySQL interface and connection pool to use. Uses environment variables for credentials
+        Create MySQL interface and connection pool to use.
+        Uses environment variables for credentials
 
         :param pool_size: Size of connection pool to create
         """
@@ -54,8 +55,7 @@ class MySQLDatabase:
 
     def _insert(self,
                 table: TableEnum,
-                inserts: Dict[str,
-                              Any],
+                inserts: Dict[str, Any],
                 on_success_msg: str = None) -> int | None:
         """
         Generic insert into the database
@@ -80,11 +80,11 @@ class MySQLDatabase:
                     logger.debug_msg(on_success_msg)
                 # return auto incremented id if used
                 return result.lastrowid
-        except IntegrityError as ie:
+        except IntegrityError:
             # duplicate entry
             # logger.debug_msg(f"{ie.errno} | {table.value} | ({',
             # '.join(values)})") # disabled b/c annoying
-            pass
+            return None
         except OperationalError as oe:
             # failed to insert
             logger.error_exp(oe)
@@ -93,8 +93,7 @@ class MySQLDatabase:
     def _select(self,
                 table: TableEnum,
                 columns: List[str] = None,
-                where_equals: Dict[str,
-                                   Any] = None,
+                where_equals: Dict[str, Any] = None,
                 fetch_all: bool = True) -> List[Tuple[Any]]:
         """
         Generic select from the database
@@ -102,11 +101,12 @@ class MySQLDatabase:
         :param table: Table to select from
         :param columns: optional column names to insert into (default: *)
         :param where_equals: optional where equals clause (column, value)
-        :param fetch_all: Fetch all rows, fetch one if false. Useful if checking to table contains value (Default: True)
+        :param fetch_all:
+            Fetch all rows, fetch one if false.
+            Useful if checking to table contains value (Default: True)
         """
         # build SQL
-        columns_names = f"{
-            ', '.join(columns)}" if columns else '*'  # c1, ..., cN
+        columns_names = f"{', '.join(columns)}" if columns else '*'  # c1, ..., cN
         sql = f"SELECT {columns_names} FROM {table.value}"
         # add where clauses if given
         if where_equals:
@@ -127,17 +127,15 @@ class MySQLDatabase:
                 rows = result.fetchall()
                 # convert to tuples if response, else return nothing
                 return [tuple(row) for row in rows] if rows else []
-            else:
-                row = result.fetchone()
-                # fetch_one returns tuple, convert to list
-                return [row] if row else []
+
+            # fetch_one returns tuple, convert to list
+            row = result.fetchone()
+            return [row] if row else []
 
     def _update(self,
                 table: TableEnum,
-                updates: Dict[str,
-                              Any],
-                where_equals: Dict[str,
-                                   Any] = None,
+                updates: Dict[str, Any],
+                where_equals: Dict[str, Any] = None,
                 on_success: str = None,
                 amend: bool = False) -> bool:
         """
@@ -167,7 +165,7 @@ class MySQLDatabase:
                 f"{col} = :where_{col}" for col in where_equals.keys())
             sql += f" WHERE {where_clause}"
             params.update({f"where_{col}": val for col,
-                          val in where_equals.items()})
+            val in where_equals.items()})
         # execute
         try:
             with self._engine.begin() as conn:
@@ -184,10 +182,8 @@ class MySQLDatabase:
 
     def _upsert(self,
                 table: TableEnum,
-                primary_keys: Dict[str,
-                                   Any],
-                updates: Dict[str,
-                              Any],
+                primary_keys: Dict[str, Any],
+                updates: Dict[str, Any],
                 print_on_success: bool = False) -> None:
         """
         Generic upsert to the database

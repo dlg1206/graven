@@ -1,3 +1,14 @@
+"""
+file: vuln_fetcher.py
+Description: Pull CVE and CWE data from NVD and MITRE
+Documentation: https://nvd.nist.gov/developers/vulnerabilities
+
+Adapted from https://github.com/dlg1206/threat-actor-database/blob/v1.0.0/src/threat_actor_db/vuln_api/nvd.py
+and https://github.com/dlg1206/threat-actor-database/blob/v1.0.0/src/threat_actor_db/mitre/search.py
+
+@author Derek Garcia
+"""
+
 import os
 import time
 from abc import ABC
@@ -14,16 +25,6 @@ from db.graven_database import GravenDatabase, Stage
 from shared.logger import logger
 from worker.worker import Worker
 
-"""
-file: vuln_fetcher.py
-Description: Pull CVE and CWE data from NVD and MITRE
-Documentation: https://nvd.nist.gov/developers/vulnerabilities
-
-Adapted from https://github.com/dlg1206/threat-actor-database/blob/v1.0.0/src/threat_actor_db/vuln_api/nvd.py
-and https://github.com/dlg1206/threat-actor-database/blob/v1.0.0/src/threat_actor_db/mitre/search.py
-
-@author Derek Garcia
-"""
 # prevent rate limiting
 PUBLIC_RATE_LIMIT_SLEEP_SECONDS = 6
 API_RATE_LIMIT_SLEEP_SECONDS = 0.6
@@ -36,6 +37,9 @@ RETRY_SLEEP = 10
 
 @dataclass
 class MITREResult:
+    """
+    Data from MITRE
+    """
     name: str
     description: str
     source: str
@@ -43,6 +47,9 @@ class MITREResult:
 
 @dataclass
 class NVDResult:
+    """
+    Data from NVD
+    """
     cvss: float
     publish_date: str
     description: str
@@ -51,10 +58,17 @@ class NVDResult:
     cwes: List[str]
 
     def __post_init__(self):
+        """
+        Ensure description has no newlines or leading or trailing whitespace
+        """
         self.description = self.description.strip()
 
 
 class CVENotFoundError(IOError):
+    """
+    CVE is not found in NVD
+    """
+
     def __init__(self, cve_id: str, nvd_url: str):
         """
         CVE is not found in NVD
@@ -68,6 +82,10 @@ class CVENotFoundError(IOError):
 
 
 class VulnFetcherWorker(Worker, ABC):
+    """
+    Worker that constantly queries NVD and MITRE for vulnerability details
+    """
+
     def __init__(self, master_terminate_flag: Event, database: GravenDatabase):
         """
         Create a new NVD and Mitre Worker
@@ -81,7 +99,7 @@ class VulnFetcherWorker(Worker, ABC):
         self._analyzer_done_flag = None
         self._analyzer_first_hit_flag = None
         # determine sleep if key is available
-        self._api_key_available = True if os.getenv('NVD_API_KEY') else False
+        self._api_key_available = bool(os.getenv('NVD_API_KEY'))
         self._sleep = API_RATE_LIMIT_SLEEP_SECONDS if self._api_key_available else PUBLIC_RATE_LIMIT_SLEEP_SECONDS
         if self._api_key_available:
             logger.debug_msg("Using NVD API Key")
@@ -105,12 +123,8 @@ class VulnFetcherWorker(Worker, ABC):
         logger.debug_msg(f"{cve_id} | Sleeping for {self._sleep} seconds")
         time.sleep(self._sleep)
         # use key if available
-        if self._api_key_available:
-            r = requests.get(
-                nvd_url, headers={
-                    "apiKey": os.environ["NVD_API_KEY"]})
-        else:
-            r = requests.get(nvd_url)
+        headers = {"apiKey": os.environ["NVD_API_KEY"]} if self._api_key_available else None
+        r = requests.get(nvd_url, headers=headers, allow_redirects=True, timeout=999)
         r.raise_for_status()  # check if ok
         logger.info(f"Queried {nvd_url}")
         # ensure CVE exists
@@ -129,14 +143,7 @@ class VulnFetcherWorker(Worker, ABC):
                    if cwe['description'][0]['value'].startswith('CWE')]
 
         # return results
-        return NVDResult(
-            cvss_score,
-            cve['published'],
-            description,
-            nvd_url,
-            datetime.now(
-                timezone.utc),
-            cwe_ids)
+        return NVDResult(cvss_score, cve['published'], description, nvd_url, datetime.now(timezone.utc), cwe_ids)
 
     def _handle_message(self, message: str) -> None:
         """
@@ -162,46 +169,34 @@ class VulnFetcherWorker(Worker, ABC):
                 if not self._database.has_seen_cwe(cwe_id):
                     try:
                         mitre_result = _fetch_cwe(cwe_id)
-                        self._database.upsert_cwe(
-                            self._run_id,
-                            cwe_id,
-                            name=mitre_result.name,
-                            description=mitre_result.description,
-                            source=mitre_result.source,
-                            last_queried=datetime.now(
-                                timezone.utc),
-                            status_code=0)
+                        self._database.upsert_cwe(self._run_id, cwe_id,
+                                                  name=mitre_result.name,
+                                                  description=mitre_result.description,
+                                                  source=mitre_result.source,
+                                                  last_queried=datetime.now(timezone.utc),
+                                                  status_code=0)
                         logger.info(f"Added details for '{cwe_id}'")
                     except (RequestException, Exception) as e:
                         # handle failed to get cwe
                         details = {'cwe_id': cwe_id}
                         if hasattr(e, 'response'):
-                            details.update(
-                                {'status_code': e.response.status_code})
-                        self._database.log_error(
-                            self._run_id, Stage.VULN, e, details=details)
-                        self._database.upsert_cwe(
-                            self._run_id, cwe_id, last_queried=datetime.now(
-                                timezone.utc), status_code=1)
+                            details.update({'status_code': e.response.status_code})
+                        self._database.log_error(self._run_id, Stage.VULN, e, details=details)
+                        self._database.upsert_cwe(self._run_id, cwe_id, last_queried=datetime.now(timezone.utc),
+                                                  status_code=1)
                 # associate cve to cwe
-                self._database.associate_cve_and_cwe(
-                    self._run_id, cve_id, cwe_id)
+                self._database.associate_cve_and_cwe(self._run_id, cve_id, cwe_id)
 
         except (RequestException, CVENotFoundError, Exception) as e:
             # handle failed to get cve
             logger.error_exp(e)
             details = None
             if isinstance(e, RequestException):
-                details = {
-                    'status_code': e.response.status_code} if hasattr(
-                    e, 'response') else None
+                details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
             if isinstance(e, CVENotFoundError):
                 details = {'cve_id': e.cve_id}
-            self._database.log_error(
-                self._run_id, Stage.VULN, e, details=details)
-            self._database.upsert_cve(
-                self._run_id, cve_id, last_queried=datetime.now(
-                    timezone.utc), status_code=1)
+            self._database.log_error(self._run_id, Stage.VULN, e, details=details)
+            self._database.upsert_cve(self._run_id, cve_id, last_queried=datetime.now(timezone.utc), status_code=1)
 
     def _handle_none_message(self) -> Literal['continue', 'break']:
         """
@@ -212,8 +207,7 @@ class VulnFetcherWorker(Worker, ABC):
         if not self._analyzer_done_flag or self._analyzer_done_flag.is_set():
             return 'break'
         # else using the analyzer and cves still coming
-        logger.warn(
-            f"Found no CVEs to download but analyzer is still running, sleeping for {RETRY_SLEEP}s. . .")
+        logger.warn(f"Found no CVEs to download but analyzer is still running, sleeping for {RETRY_SLEEP}s. . .")
         time.sleep(RETRY_SLEEP)
         return 'continue'
 
@@ -240,7 +234,7 @@ class VulnFetcherWorker(Worker, ABC):
         """
         Print worker specific statistic messages
         """
-        pass
+        return
 
     def set_analyzer_first_hit_flag(self, flag: Event) -> None:
         """
@@ -268,7 +262,7 @@ def _fetch_cwe(cwe_id: str) -> MITREResult:
     :return: A MITREResult object containing the CWE ID, name, description, and link
     """
     mitre_url = f"{MITRE_CWE_ROOT}/{cwe_id.split('-')[1]}.html"
-    r = requests.get(mitre_url)
+    r = requests.get(mitre_url, allow_redirects=True, timeout=999)
     r.raise_for_status()
     logger.debug_msg(f"Queried {mitre_url}")
     soup = BeautifulSoup(r.text, "html.parser")
@@ -276,8 +270,7 @@ def _fetch_cwe(cwe_id: str) -> MITREResult:
     # 1) Find the CWE name (often in an <h2> tag)
     h2_tag = soup.find("h2")
     if h2_tag:
-        cwe_name = h2_tag.get_text(
-            strip=True).removeprefix(f"{cwe_id.upper()}: ")
+        cwe_name = h2_tag.get_text(strip=True).removeprefix(f"{cwe_id.upper()}: ")
     else:
         cwe_name = None
 
@@ -288,8 +281,7 @@ def _fetch_cwe(cwe_id: str) -> MITREResult:
         desc_div = soup.find("div", id="Abstract")
 
     if desc_div:
-        cwe_description = desc_div.get_text(
-            strip=True).removeprefix("Description")
+        cwe_description = desc_div.get_text(strip=True).removeprefix("Description")
     else:
         cwe_description = None
 

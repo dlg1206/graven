@@ -1,3 +1,11 @@
+"""
+File: generator.py
+
+Description: Use syft to generate SBOMs
+
+@author Derek Garcia
+"""
+
 import tempfile
 import time
 from abc import ABC
@@ -13,25 +21,16 @@ from shared.logger import logger
 from shared.timer import Timer
 from worker.worker import Worker
 
-"""
-File: generator.py
-
-Description: Use syft to generate SBOMs
-
-@author Derek Garcia
-"""
-
 # reserve .05 MB / 50 KB of space per sbom
 SYFT_SPACE_BUFFER = 0.05 * BYTES_PER_MB
 
 
 class GeneratorWorker(Worker, ABC):
-    def __init__(
-            self,
-            master_terminate_flag: Event,
-            database: GravenDatabase,
-            syft: Syft,
-            cache_size: int):
+    """
+    Worker that constantly generates SBOMs using syft
+    """
+
+    def __init__(self, master_terminate_flag: Event, database: GravenDatabase, syft: Syft, cache_size: int):
         """
         Create a new generator worker that spawns threads to process jars using syft
 
@@ -60,9 +59,7 @@ class GeneratorWorker(Worker, ABC):
 
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.warn(
-                f"[STOP ORDER RECEIVED] | Skipping syft scan | {
-                    message.jar_id}")
+            logger.warn(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
             self._handle_shutdown(message)
             return
         # else generate sbom
@@ -70,37 +67,26 @@ class GeneratorWorker(Worker, ABC):
         try:
             timer = Timer(True)
             logger.debug_msg(f"Queuing syft | {message.jar_id}")
-            self._syft.scan(
-                message.jar_file.file_path,
-                message.syft_file.file_path)
+            self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
             # remove jar since not needed
             message.jar_file.close()
             # report success
             message.syft_file.open()
             self._sboms_generated += 1
-            logger.info(
-                f"Generated syft sbom in {
-                    timer.format_time()}s | {
-                    message.syft_file.file_name}")
+            logger.info(f"Generated syft sbom in {timer.format_time()}s | {message.syft_file.file_name}")
 
         except SyftScanFailure as e:
             # if syft failed, report but don't skip
             logger.error_exp(e)
-            self._database.log_error(
-                self._run_id,
-                Stage.GENERATOR,
-                e,
-                jar_id=message.jar_id,
-                details={
-                    'return_code': e.return_code,
-                    'stderr': e.stderr})
+            self._database.log_error(self._run_id, Stage.GENERATOR, e,
+                                     jar_id=message.jar_id,
+                                     details={'return_code': e.return_code, 'stderr': e.stderr})
             message.syft_file.close()  # remove sbom if generated
         except Exception as e:
             message.close()
             # some unknown error - log and exit early
             logger.error_exp(e)
-            self._database.log_error(
-                self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id)
+            self._database.log_error(self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             return
         finally:
@@ -109,9 +95,7 @@ class GeneratorWorker(Worker, ABC):
 
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
-            logger.warn(
-                f"[STOP ORDER RECEIVED] | SBOM generated but not scanning | {
-                    message.jar_url}")
+            logger.warn(f"[STOP ORDER RECEIVED] | SBOM generated but not scanning | {message.jar_url}")
             self._handle_shutdown(message)
         else:
             # send downstream
@@ -132,8 +116,7 @@ class GeneratorWorker(Worker, ABC):
             # init file
         message.init_syft_file(self._cache_manager, self._work_dir_path)
         # try to reserve space, requeue if no space
-        if not self._cache_manager.reserve_space(
-                message.syft_file.file_name, SYFT_SPACE_BUFFER):
+        if not self._cache_manager.reserve_space(message.syft_file.file_name, SYFT_SPACE_BUFFER):
             logger.warn("No space left in cache, trying later. . .")
             message.syft_file.close()
             self._consumer_queue.put(message)
@@ -148,8 +131,7 @@ class GeneratorWorker(Worker, ABC):
 
         :param root_dir: Temp root directory working in
         """
-        self._work_dir_path = tempfile.mkdtemp(
-            prefix='syft_', dir=kwargs['root_dir'])
+        self._work_dir_path = tempfile.mkdtemp(prefix='syft_', dir=kwargs['root_dir'])
 
     def print_statistics_message(self) -> None:
         """
