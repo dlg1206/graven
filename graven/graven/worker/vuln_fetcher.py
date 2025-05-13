@@ -139,7 +139,7 @@ class VulnFetcherWorker(Worker, ABC):
         # get additional CVE details
         description = [dsc['value']
                        for dsc in cve['descriptions'] if dsc['lang'] == 'en'][0]
-        cwe_ids = [cwe['description'][0]['value'] for cwe in cve['weaknesses']
+        cwe_ids = [cwe['description'][0]['value'] for cwe in cve.get('weaknesses', [])
                    if cwe['description'][0]['value'].startswith('CWE')]
 
         # return results
