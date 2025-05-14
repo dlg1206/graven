@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 import requests
 from requests import RequestException
+from tqdm import tqdm
 
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
@@ -82,17 +83,26 @@ class DownloaderWorker(Worker, ABC):
             # init jar
             timer = Timer(True)
             response = requests.head(message.jar_url, allow_redirects=True, timeout=999)
-            use_stream = int(response.headers.get('content-length', 0)) > MAX_WRITE_SIZE
+            file_size = int(response.headers.get('content-length', 0))
+            use_stream = file_size > MAX_WRITE_SIZE
             with requests.get(message.jar_url, allow_redirects=True, timeout=999, stream=use_stream) as response:
                 response.raise_for_status()
-                with open(message.jar_file.file_path, 'wb') as file:
-                    # chunk if > 2 MB
-                    if use_stream:
+                if use_stream:
+                    with open(message.jar_file.file_path, 'wb') as file, tqdm(
+                            total=file_size,
+                            unit='B',
+                            unit_scale=True,
+                            unit_divisor=1024,
+                            desc="Downloading",
+                            initial=0
+                    ) as progress:
                         for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                             if chunk:
                                 file.write(chunk)
+                                progress.update(len(chunk))
                     # else just write
-                    else:
+                else:
+                    with open(message.jar_file.file_path, 'wb') as file:
                         file.write(response.content)
             # log success
             message.jar_file.open()
