@@ -111,7 +111,7 @@ class DownloaderWorker(Worker, ABC):
                 # send downstream
                 self._database.update_jar_status(message.jar_id, Stage.TRN_DWN_ANCHORE)
                 self._producer_queue.put(message)
-        except (RequestException, Exception) as e:
+        except (RequestException, ConnectionError, Exception) as e:
             logger.error_exp(e)
             details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
             self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
@@ -147,7 +147,7 @@ class DownloaderWorker(Worker, ABC):
             # space reserved, kickoff job
             self._database.log_event(message.jar_id, event_label="download_enqueue")
             return self._thread_pool_executor.submit(self._download_jar, message)
-        except (RequestException, ExceedsCacheLimitError) as e:
+        except (RequestException, ExceedsCacheLimitError, Exception) as e:
             logger.error_exp(e)
             if isinstance(e, RequestException):
                 # url dne - error and remove from pipeline
