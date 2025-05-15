@@ -7,7 +7,7 @@ Description:
 import math
 import time
 from contextlib import contextmanager
-from threading import Lock
+from threading import Lock, Event
 
 from shared.logger import logger
 
@@ -58,13 +58,14 @@ class CacheManager:
         finally:
             self._lock.release()
 
-    def reserve_space(self, file_uid: str, file_size: int, wait: bool = False) -> bool:
+    def reserve_space(self, file_uid: str, file_size: int, wait: bool = False, terminate_flag: Event = None) -> bool:
         """
         Attempt to reserve space in cache
 
         :param file_uid: ID of file to reference
         :param file_size: Size of space to reserve
         :param wait: Wait for space in the cache (Default: False)
+        :param terminate_flag: Event to break if waiting (Default: None)
         :returns: True if space reserved, false otherwise
         """
         file_size = math.ceil(file_size)
@@ -82,6 +83,9 @@ class CacheManager:
                                      f"| available space: {self._max_capacity - self._current_capacity}")
             # return status if not waiting
             if space_available or not wait:
+                return space_available
+            # exit if flag tripped
+            if terminate_flag and terminate_flag.is_set():
                 return space_available
             # sleep to avoid busy loop
             logger.debug_msg(f"Waiting for memory to process | {file_uid}")
