@@ -5,6 +5,7 @@ Description:
 @author Derek Garcia
 """
 import math
+import time
 from contextlib import contextmanager
 from threading import Lock
 
@@ -57,12 +58,13 @@ class CacheManager:
         finally:
             self._lock.release()
 
-    def reserve_space(self, file_uid: str, file_size: int) -> bool:
+    def reserve_space(self, file_uid: str, file_size: int, wait: bool = False) -> bool:
         """
         Attempt to reserve space in cache
 
         :param file_uid: ID of file to reference
         :param file_size: Size of space to reserve
+        :param wait: Wait for space in the cache (Default: False)
         :returns: True if space reserved, false otherwise
         """
         file_size = math.ceil(file_size)
@@ -70,14 +72,20 @@ class CacheManager:
         if file_size > self._max_capacity:
             raise ExceedsCacheLimitError(file_uid, file_size, file_size - self._max_capacity)
         # attempt to reserve space
-        with self._open_critical_section():
-            space_available = self._current_capacity + file_size < self._max_capacity
-            if space_available:
-                self._index[file_uid] = file_size
-                self._current_capacity += file_size
-                logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} "
-                                 f"| available space: {self._max_capacity - self._current_capacity}")
-            return space_available
+        while True:
+            with self._open_critical_section():
+                space_available = self._current_capacity + file_size < self._max_capacity
+                if space_available:
+                    self._index[file_uid] = file_size
+                    self._current_capacity += file_size
+                    logger.debug_msg(f"Reserved '{file_uid}' | reserved: {file_size} "
+                                     f"| available space: {self._max_capacity - self._current_capacity}")
+            # return status if not waiting
+            if space_available or not wait:
+                return space_available
+            # sleep to avoid busy loop
+            logger.debug_msg(f"Waiting for memory to process | {file_uid}")
+            time.sleep(0.1)
 
     def update_space(self, file_uid: str, file_size: int) -> None:
         """
