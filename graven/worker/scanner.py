@@ -150,7 +150,8 @@ class ScannerWorker(Worker, ABC):
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
         # wait until enough RAM to process
-        self._in_flight_cache_manager.reserve_space(grype_file_name, message.jar_file.get_file_size(), wait=True)
+        self._in_flight_cache_manager.reserve_space(grype_file_name, message.jar_file.get_file_size(),
+                                                    wait=True, terminate_flag=self._master_terminate_flag)
         self._database.log_event(message.jar_id, event_label="scanner_enqueue")
         return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
