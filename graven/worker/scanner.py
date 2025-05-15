@@ -23,6 +23,13 @@ from worker.worker import Worker
 
 # reserve .02 MB / 20 KB of space per grype report
 GRYPE_SPACE_BUFFER = 0.02 * BYTES_PER_MB
+"""
+Crashes occurred when syft processed to many large jars at once, in theory due to the RAM being exceeded
+and the process killed. Testing found crashes occurred when processing ~80 MB of jar data at once on a machine with
+16 GB of RAM, so a process cap has been set at 64MB (80% of theoretical max). Machines with more RAM may be able to
+support greater limit, but value has been fixed for now
+"""
+PROCESS_LIMIT = 64 * BYTES_PER_MB
 
 
 class ScannerWorker(Worker, ABC):
@@ -45,6 +52,7 @@ class ScannerWorker(Worker, ABC):
         # config
         self._grype = grype
         self._cache_manager = CacheManager(cache_size)
+        self._in_flight_cache_manager = CacheManager(PROCESS_LIMIT)  # cm to limit amount of data processed at once
         # stats
         self._sboms_scanned = 0
         self._jars_scanned = 0
@@ -67,6 +75,7 @@ class ScannerWorker(Worker, ABC):
             return
         # scan
         self._database.update_jar_status(message.jar_id, Stage.SCANNER)
+        grype_file_name = message.grype_file.file_name
         try:
             logger.debug_msg(f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
@@ -94,6 +103,7 @@ class ScannerWorker(Worker, ABC):
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             return
         finally:
+            self._in_flight_cache_manager.free_space(grype_file_name)
             # mark as done
             self._consumer_queue.task_done()
             # remove jar since finished
@@ -131,14 +141,16 @@ class ScannerWorker(Worker, ABC):
 
             # init file
         message.init_grype_file(self._cache_manager, self._work_dir_path)
+        grype_file_name = message.syft_file.file_name
         # try to reserve space, requeue if no space
-        if not self._cache_manager.reserve_space(message.grype_file.file_name, GRYPE_SPACE_BUFFER):
+        if not self._cache_manager.reserve_space(grype_file_name, GRYPE_SPACE_BUFFER):
             logger.warn("No space left in cache, trying later. . .")
-            message.grype_file.close()
+            message.syft_file.close()
             self._consumer_queue.put(message)
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
-        # else process
+        # wait until enough RAM to process
+        self._in_flight_cache_manager.reserve_space(grype_file_name, message.jar_file.get_file_size(), wait=True)
         self._database.log_event(message.jar_id, event_label="scanner_enqueue")
         return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
