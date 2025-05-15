@@ -37,6 +37,7 @@ class Table(TableEnum):
     DOMAIN = "domain"
     ERROR_LOG = "error_log"
     RUN_LOG = "run_log"
+    EVENT_LOG = "event_log"
 
 
 class JoinTable(TableEnum):
@@ -179,10 +180,7 @@ class GravenDatabase(MySQLDatabase):
             if not result:
                 return None
             # else mark in progress
-            conn.execute(
-                text("UPDATE jar SET status = :status WHERE jar_id = :jar_id"),
-                {"status": Stage.TRN_DB_DWN.value, "jar_id": result.jar_id}
-            )
+            self.update_jar_status(result.jar_id, Stage.TRN_DB_DWN)
         return Message(f"{MAVEN_CENTRAL_ROOT}{result[0]}", result[1])
 
     def get_domain_status(self, domain_url: str) -> CrawlStatus:
@@ -240,6 +238,40 @@ class GravenDatabase(MySQLDatabase):
         """
         self._upsert(Table.DOMAIN, {'url': domain_url, 'run_id': run_id}, {'crawl_end': crawl_end})
 
+    def log_event(self, jar_id: str, stage: Stage | FinalStatus = None, event_label: str = None) -> None:
+        """
+        Log a pipeline event for a jar
+
+        :param jar_id: ID of jar
+        :param stage: Optional stage to use preset event label
+        :param event_label: Optional event label to directly use, supered stage
+        """
+        # use label if provided
+        if event_label:
+            self._upsert(Table.EVENT_LOG, {'jar_id': jar_id}, {event_label: datetime.now(timezone.utc)})
+            return
+        # else use preset from stage map
+        match stage:
+            case Stage.DOWNLOADER:
+                event_label = "download_start"
+            case Stage.TRN_DWN_ANCHORE:
+                event_label = "download_end"
+            case Stage.GENERATOR:
+                event_label = "generator_start"
+            case Stage.TRN_GEN_SCN:
+                event_label = "generator_end"
+            case Stage.SCANNER:
+                event_label = "scanner_start"
+            case Stage.TRN_SCN_ANL:
+                event_label = "scanner_end"
+            case Stage.ANALYZER:
+                event_label = "analyzer_start"
+            case FinalStatus.DONE:
+                event_label = "analyzer_end"
+        # log if event label was set
+        if event_label:
+            self._upsert(Table.EVENT_LOG, {'jar_id': jar_id}, {event_label: datetime.now(timezone.utc)})
+
     def update_jar_status(self, jar_id: str, status: Stage | FinalStatus | None) -> None:
         """
         Update the status of the jar in the graven pipeline
@@ -253,6 +285,7 @@ class GravenDatabase(MySQLDatabase):
             updates['last_processed'] = datetime.now(timezone.utc)
         # update db
         self._upsert(Table.JAR, {'jar_id': jar_id}, updates)
+        self.log_event(jar_id, status)
 
     def upsert_artifact(self, run_id: int, purl: str, **kwargs: str | int) -> None:
         """

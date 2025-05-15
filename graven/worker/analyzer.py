@@ -103,6 +103,7 @@ class AnalyzerWorker(Worker, ABC):
 
         :param message: Message with all data to parse and save
         """
+        self._database.log_event(message.jar_id, event_label="analyzer_dequeue")
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             if message.syft_file:
@@ -133,6 +134,7 @@ class AnalyzerWorker(Worker, ABC):
                 logger.debug_msg(f"grype file is closed, skipping. . . | {message.grype_file.file_name}")
             # mark as done
             self._database.update_jar_status(message.jar_id, FinalStatus.DONE)
+            self._database.log_event(message.jar_id, event_label="analyzer_end")
             logger.info(f"Processed in {timer.format_time()}s | {message.jar_id}")
         except Exception as e:
             logger.error_exp(e)
@@ -155,7 +157,7 @@ class AnalyzerWorker(Worker, ABC):
         if not self._seen_file:
             self._seen_file = True
             self._timer.start()
-
+        self._database.log_event(message.jar_id, event_label="analyzer_enqueue")
         return self._thread_pool_executor.submit(self._analyze_files, message)
 
     def _post_start(self) -> None:

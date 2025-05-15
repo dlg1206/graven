@@ -19,7 +19,6 @@ from db.graven_database import Stage, GravenDatabase, FinalStatus
 from qmodel.message import Message
 from shared.cache_manager import CacheManager, BYTES_PER_MB, RESERVE_BACKOFF_TIMEOUT
 from shared.logger import logger
-from shared.timer import Timer
 from worker.worker import Worker
 
 # reserve .02 MB / 20 KB of space per grype report
@@ -60,6 +59,7 @@ class ScannerWorker(Worker, ABC):
 
         :param message: Message with jar path and additional details
         """
+        self._database.log_event(message.jar_id, event_label="scanner_dequeue")
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.warn(f"[STOP ORDER RECEIVED] | Skipping grype scan | {message.jar_id}")
@@ -139,6 +139,7 @@ class ScannerWorker(Worker, ABC):
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
         # else process
+        self._database.log_event(message.jar_id, event_label="scanner_enqueue")
         return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
     def print_statistics_message(self) -> None:
