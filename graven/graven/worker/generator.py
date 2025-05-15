@@ -22,6 +22,13 @@ from worker.worker import Worker
 
 # reserve .05 MB / 50 KB of space per sbom
 SYFT_SPACE_BUFFER = 0.05 * BYTES_PER_MB
+"""
+Crashes occurred when syft processed to many large jars at once, in theory due to the RAM being exceeded
+and the process killed. Testing found crashes occurred when processing ~80 MB of jar data at once on a machine with
+16 GB of RAM, so a process cap has been set at 64MB (80% of theoretical max). Machines with more RAM may be able to
+support greater limit, but value has been fixed for now
+"""
+PROCESS_LIMIT = 64 * BYTES_PER_MB
 
 
 class GeneratorWorker(Worker, ABC):
@@ -42,6 +49,7 @@ class GeneratorWorker(Worker, ABC):
         # config
         self._syft = syft
         self._cache_manager = CacheManager(cache_size)
+        self._in_flight_cache_manager = CacheManager(PROCESS_LIMIT)  # cm to limit amount of data processed at once
         # stats
         self._sboms_generated = 0
         self._seen_jar = False
@@ -63,6 +71,7 @@ class GeneratorWorker(Worker, ABC):
             return
         # else generate sbom
         self._database.update_jar_status(message.jar_id, Stage.GENERATOR)
+        syft_file_name = message.syft_file.file_name
         try:
             logger.debug_msg(f"Queuing syft | {message.jar_id}")
             self._syft.scan(message.jar_file.file_path, message.syft_file.file_path)
@@ -90,6 +99,7 @@ class GeneratorWorker(Worker, ABC):
             return
         finally:
             # mark as done
+            self._in_flight_cache_manager.free_space(syft_file_name)
             self._consumer_queue.task_done()
 
         # remove jar since not needed
@@ -120,14 +130,16 @@ class GeneratorWorker(Worker, ABC):
             self._timer.start()
             # init file
         message.init_syft_file(self._cache_manager, self._work_dir_path)
+        syft_file_name = message.syft_file.file_name
         # try to reserve space, requeue if no space
-        if not self._cache_manager.reserve_space(message.syft_file.file_name, SYFT_SPACE_BUFFER):
+        if not self._cache_manager.reserve_space(syft_file_name, SYFT_SPACE_BUFFER):
             logger.warn("No space left in cache, trying later. . .")
             message.syft_file.close()
             self._consumer_queue.put(message)
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
-        # else process
+        # wait until enough RAM to process
+        self._in_flight_cache_manager.reserve_space(syft_file_name, message.jar_file.get_file_size(), wait=True)
         self._database.log_event(message.jar_id, event_label="generator_enqueue")
         return self._thread_pool_executor.submit(self._generate_sbom, message)
 
