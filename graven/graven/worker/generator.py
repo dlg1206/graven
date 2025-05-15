@@ -18,7 +18,6 @@ from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
 from shared.cache_manager import CacheManager, BYTES_PER_MB, RESERVE_BACKOFF_TIMEOUT
 from shared.logger import logger
-from shared.timer import Timer
 from worker.worker import Worker
 
 # reserve .05 MB / 50 KB of space per sbom
@@ -56,7 +55,7 @@ class GeneratorWorker(Worker, ABC):
 
         :param message: Message with jar path and additional details
         """
-
+        self._database.log_event(message.jar_id, event_label="generator_dequeue")
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.warn(f"[STOP ORDER RECEIVED] | Skipping syft scan | {message.jar_id}")
@@ -71,7 +70,8 @@ class GeneratorWorker(Worker, ABC):
         except TimeoutExpired as e:
             logger.error_msg(f"Exceeded timeout, retrying later | {message.jar_id}", e)
             # todo - remove, keeping for testing
-            self._database.log_error(self._run_id, Stage.GENERATOR, e,jar_id=message.jar_id, details={'stderr': e.stderr})
+            self._database.log_error(self._run_id, Stage.GENERATOR, e, jar_id=message.jar_id,
+                                     details={'stderr': e.stderr})
             self._consumer_queue.put(message)
             return
         except SyftScanFailure as e:
@@ -128,6 +128,7 @@ class GeneratorWorker(Worker, ABC):
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
         # else process
+        self._database.log_event(message.jar_id, event_label="generator_enqueue")
         return self._thread_pool_executor.submit(self._generate_sbom, message)
 
     def _pre_start(self, **kwargs: Any) -> None:

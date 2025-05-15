@@ -16,7 +16,6 @@ from typing import Any, Literal
 
 import requests
 from requests import RequestException
-from tqdm import tqdm
 
 from db.graven_database import GravenDatabase, Stage, FinalStatus
 from qmodel.message import Message
@@ -70,6 +69,7 @@ class DownloaderWorker(Worker, ABC):
 
         :param message: Message with jar details
         """
+        self._database.log_event(message.jar_id, event_label="download_dequeue")
         # skip if stop order triggered
         if self._master_terminate_flag.is_set():
             logger.warn(f"[STOP ORDER RECEIVED] | Skipping download | {message.jar_url}")
@@ -87,22 +87,14 @@ class DownloaderWorker(Worker, ABC):
             use_stream = file_size > MAX_WRITE_SIZE
             with requests.get(message.jar_url, allow_redirects=True, timeout=999, stream=use_stream) as response:
                 response.raise_for_status()
-                if use_stream:
-                    with open(message.jar_file.file_path, 'wb') as file, tqdm(
-                            total=file_size,
-                            unit='B',
-                            unit_scale=True,
-                            unit_divisor=1024,
-                            desc="Downloading",
-                            initial=0
-                    ) as progress:
+                with open(message.jar_file.file_path, 'wb') as file:
+                    # chunk if > 2 MB
+                    if use_stream:
                         for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                             if chunk:
                                 file.write(chunk)
-                                progress.update(len(chunk))
                     # else just write
-                else:
-                    with open(message.jar_file.file_path, 'wb') as file:
+                    else:
                         file.write(response.content)
             # log success
             message.jar_file.open()
@@ -153,6 +145,7 @@ class DownloaderWorker(Worker, ABC):
                 time.sleep(RESERVE_BACKOFF_TIMEOUT)
                 return None
             # space reserved, kickoff job
+            self._database.log_event(message.jar_id, event_label="download_enqueue")
             return self._thread_pool_executor.submit(self._download_jar, message)
         except (RequestException, ExceedsCacheLimitError) as e:
             logger.error_exp(e)
