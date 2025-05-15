@@ -80,11 +80,13 @@ class ScannerWorker(Worker, ABC):
             logger.debug_msg(f"Queuing grype | {message.jar_id}")
             # scan sbom or jar depending on what's available
             if message.syft_file and message.syft_file.is_open:
-                file_path = message.syft_file.file_path
+                file = message.syft_file
             else:
-                file_path = message.jar_file.file_path
-
-            self._grype.scan(file_path, message.grype_file.file_path)
+                file = message.jar_file
+            # wait until enough RAM to process
+            self._in_flight_cache_manager.reserve_space(grype_file_name, file.get_file_size(),
+                                                        wait=True, terminate_flag=self._master_terminate_flag)
+            self._grype.scan(file.file_path, message.grype_file.file_path)
 
         except TimeoutExpired as e:
             logger.error_msg(f"Exceeded timeout, retrying later | {message.jar_id}", e)
@@ -123,8 +125,7 @@ class ScannerWorker(Worker, ABC):
             logger.warn(f"[STOP ORDER RECEIVED] | Grype report generated but not processing | {message.jar_url}")
             self._handle_shutdown(message)
         else:
-            self._database.update_jar_status(
-                message.jar_id, Stage.TRN_SCN_ANL)
+            self._database.update_jar_status(message.jar_id, Stage.TRN_SCN_ANL)
             self._producer_queue.put(message)
 
     def _handle_message(self, message: Message | str) -> Future | None:
@@ -141,7 +142,7 @@ class ScannerWorker(Worker, ABC):
 
             # init file
         message.init_grype_file(self._cache_manager, self._work_dir_path)
-        grype_file_name = message.syft_file.file_name
+        grype_file_name = message.grype_file.file_name
         # try to reserve space, requeue if no space
         if not self._cache_manager.reserve_space(grype_file_name, GRYPE_SPACE_BUFFER):
             logger.warn("No space left in cache, trying later. . .")
@@ -149,9 +150,7 @@ class ScannerWorker(Worker, ABC):
             self._consumer_queue.put(message)
             time.sleep(RESERVE_BACKOFF_TIMEOUT)
             return None
-        # wait until enough RAM to process
-        self._in_flight_cache_manager.reserve_space(grype_file_name, message.jar_file.get_file_size(),
-                                                    wait=True, terminate_flag=self._master_terminate_flag)
+        # else process
         self._database.log_event(message.jar_id, event_label="scanner_enqueue")
         return self._thread_pool_executor.submit(self._scan_with_grype, message)
 
