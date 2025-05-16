@@ -113,7 +113,10 @@ class DownloaderWorker(Worker, ABC):
                 self._producer_queue.put(message)
         except (RequestException, ConnectionError, Exception) as e:
             logger.error_exp(e)
-            details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
+            details = None
+            if isinstance(e, RequestException):
+                if hasattr(e, 'response') and e.response is not None:
+                    details = {'status_code': e.response.status_code}
             self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
             # rm and release if anything goes wrong
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
@@ -151,8 +154,9 @@ class DownloaderWorker(Worker, ABC):
             logger.error_exp(e)
             details = None
             if isinstance(e, RequestException):
-                # url dne - error and remove from pipeline
-                details = {'status_code': e.response.status_code}
+                if hasattr(e, 'response') and e.response is not None:
+                    details = {'status_code': e.response.status_code}
+                    # url dne - error and remove from pipeline
             elif isinstance(e, ExceedsCacheLimitError):
                 # exceed total cache, reject
                 details = {'file_size': e.file_size, 'exceeds_by': e.exceeds_by}
