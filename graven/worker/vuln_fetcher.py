@@ -179,8 +179,9 @@ class VulnFetcherWorker(Worker, ABC):
                     except (RequestException, Exception) as e:
                         # handle failed to get cwe
                         details = {'cwe_id': cwe_id}
-                        if hasattr(e, 'response'):
-                            details.update({'status_code': e.response.status_code})
+                        if isinstance(e, RequestException):
+                            if hasattr(e, 'response') and e.response is not None:
+                                details.update({'status_code': e.response.status_code})
                         self._database.log_error(self._run_id, Stage.VULN, e, details=details)
                         self._database.upsert_cwe(self._run_id, cwe_id, last_queried=datetime.now(timezone.utc),
                                                   status_code=1)
@@ -192,7 +193,8 @@ class VulnFetcherWorker(Worker, ABC):
             logger.error_exp(e)
             details = None
             if isinstance(e, RequestException):
-                details = {'status_code': e.response.status_code} if hasattr(e, 'response') else None
+                if hasattr(e, 'response') and e.response is not None:
+                    details = {'status_code': e.response.status_code}
             if isinstance(e, CVENotFoundError):
                 details = {'cve_id': e.cve_id}
             self._database.log_error(self._run_id, Stage.VULN, e, details=details)
