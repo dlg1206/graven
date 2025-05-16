@@ -147,15 +147,17 @@ class DownloaderWorker(Worker, ABC):
             # space reserved, kickoff job
             self._database.log_event(message.jar_id, event_label="download_enqueue")
             return self._thread_pool_executor.submit(self._download_jar, message)
-        except (RequestException, ExceedsCacheLimitError, Exception) as e:
+        except (RequestException, ExceedsCacheLimitError, ConnectionError, Exception) as e:
             logger.error_exp(e)
+            details = None
             if isinstance(e, RequestException):
                 # url dne - error and remove from pipeline
                 details = {'status_code': e.response.status_code}
-            else:
+            elif isinstance(e, ExceedsCacheLimitError):
                 # exceed total cache, reject
                 details = {'file_size': e.file_size, 'exceeds_by': e.exceeds_by}
-            # save error
+            # todo - retry if
+            # save error ConnectionError
             self._database.log_error(self._run_id, Stage.DOWNLOADER, e, jar_id=message.jar_id, details=details)
             self._database.update_jar_status(message.jar_id, FinalStatus.ERROR)
             message.close()
