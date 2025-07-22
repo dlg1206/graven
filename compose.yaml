@@ -2,6 +2,7 @@
 # description: Compose stack to launch graven database
 #
 # @author: Derek Garcia
+name: graven
 services:
 
   # SQL Database

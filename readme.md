@@ -48,7 +48,7 @@ NVD_API_KEY=<your-key-here>
 2. Launch the database
 
 ```bash
-docker compose -p "graven_database" up -d
+docker compose up -d
 ```
 
 Remove `-d` if you want to see the logs
@@ -135,7 +135,7 @@ use an absolute path.
 1. Create venv
 
 ```bash
-python -m venv venv 
+python3 -m venv venv 
 ```
 
 2. Activate venv
@@ -147,7 +147,7 @@ python -m venv venv
 3. Install dependencies
 
 ```bash
-pip install -r graven/requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Usage
