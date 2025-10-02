@@ -9,9 +9,9 @@ Graven 2.0 introduces three additional workers into the pipeline, while existing
 
 - Downloader: Mass downloader for jars from Maven Central
 
-- Generator: Use `syft` to scan the downloaded jars to generate SBOMs
+- Generator: Use [syft](https://github.com/anchore/syft) to scan the downloaded jars to generate SBOMs
 
-- Scanner: Use `grype` to scan the generated SBOMs for CVEs
+- Scanner: Use [grype](https://github.com/anchore/grype) to scan the generated SBOMs for CVEs
 
 - Analyzer: Parse the `syft` and `grype` reports and save vulnerability information into the database
 
@@ -20,10 +20,20 @@ in realtime.
 
 ### Table of Contents
 
+- [Project Overview](#project-overview)
 - [Starting the Database](#starting-the-database)
 - [Launching Graven (Docker: RECOMMENDED)](#graven-quickstart)
 - [Local Deployment](#local-deployment)
 - [Usage](#usage)
+
+## Project Overview
+
+Graven is a high-performance crawler and analysis dataset generation tool that generates [Software Bill of Materials](https://www.cisa.gov/sbom) (SBOMs) 
+and scan for [Common Vulnerabilities and Exposures](https://www.redhat.com/en/topics/security/what-is-cve) (CVEs) for 
+JAR binaries from [Maven Central Repository](https://repo1.maven.org/maven2). It automates the end-to-end process of discovering and processing and
+storing CVE and dependency relationships between Maven JARs in a single easy to use pipeline. Graven is powerful solution
+for security researchers, developers, and organizations to quickly generate datasets at scale for analysis and greater 
+insight in their Maven supply chains.
 
 ## Starting the Database
 
@@ -366,3 +376,7 @@ options:
   -c {zip,tar.gz}, --compression-method {zip,tar.gz}
                         Compression mode to export data to
 ```
+
+## Questions or Issues?
+If you encounter a bug, have a question, or want to suggest a feature, feel free to open a GitHub issue!
+For contributing, see [CONTRIBUTING.md](CONTRIBUTING.md).
