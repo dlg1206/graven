@@ -15,4 +15,6 @@ jobs:
         uses: anchore/scan-action@v6.1.0
         with:
           path: "."
+          by-cve: true
+          output-format: table
 
