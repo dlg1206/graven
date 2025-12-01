@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: Please cite the following works when using this software.
+preferred-citation:
+  abstract: >-
+    Graven (grype + maven) is a recursive and optimized crawler for scraping the
+    Maven Central Repository.
+  authors:
+    - family-names: Garcia
+      given-names: Derek
+      orcid: https://orcid.org/0009-0005-2310-8879
+  date-released: 2025-10-30
+  identifiers:
+    - type: url
+      value: https://github.com/dlg1206/graven
+  title: "Graven: All-in-one Crawler for Scraping the Maven Central Repository"
+  url: https://github.com/dlg1206/graven
+  version: 2.1.0
+  abbreviation: graven
+  date-published: 2025-10-30
+  year: 2025
+  month: 10
+  type: software
